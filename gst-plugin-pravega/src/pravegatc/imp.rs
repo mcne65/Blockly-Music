@@ -298,6 +298,7 @@ impl ObjectSubclass for PravegaTC {
     // Called when a new instance is to be created. We need to return an instance
     // of our struct here and also get the class struct passed in case it's needed
     fn with_class(klass: &Self::Class) -> Self {
+        gst_info!(CAT, "with_class");        
         // Create our two pads from the templates that were registered with
         // the class and set all the functions on them.
         //

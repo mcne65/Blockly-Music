@@ -12,7 +12,7 @@ export GST_PLUGIN_PATH=${ROOT_DIR}/gst-plugin-pravega/target/debug:${GST_PLUGIN_
 export GST_DEBUG=pravegasink:TRACE,basesink:INFO
 export RUST_BACKTRACE=1
 STREAM=${STREAM:-test1}
-SIZE_SEC=10
+SIZE_SEC=${SIZE_SEC:-10}
 FPS=30
 
 gst-launch-1.0 \
