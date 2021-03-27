@@ -9,19 +9,19 @@ export GST_PLUGIN_PATH=${ROOT_DIR}/gst-plugin-pravega/target/debug:${GST_PLUGIN_
 # log level can be INFO, DEBUG, or LOG (verbose)
 export GST_DEBUG=pravegatc:TRACE,pravegasink:FIXME,basesink:FIXME
 export RUST_BACKTRACE=1
-STREAM=${STREAM:-test1}
-SIZE_SEC=1
-FPS=10
+PRAVEGA_CONTROLLER=127.0.0.1:9090
+STREAM1=${STREAM:-test1}
+STREAM2=${STREAM:-test2}
 
 gst-launch-1.0 \
 -v \
-videotestsrc name=src is-live=false do-timestamp=true num-buffers=$(($SIZE_SEC*$FPS)) \
-! "video/x-raw,format=YUY2,width=320,height=200,framerate=${FPS}/1" \
-! videoconvert \
-! clockoverlay "font-desc=Sans 48px" "time-format=%F %T" shaded-background=true \
-! timeoverlay valignment=bottom "font-desc=Sans 48px" shaded-background=true \
-! videoconvert \
-! x264enc key-int-max=${FPS} speed-preset=ultrafast bitrate=200 \
-! mpegtsmux alignment=-1 \
+pravegasrc \
+  stream=examples/${STREAM1} \
+  controller=${PRAVEGA_CONTROLLER} \
+  start-pts-at-zero=false \
 ! pravegatc \
-! pravegasink stream=examples/${STREAM} controller=127.0.0.1:9090 seal=false sync=false
+! pravegasink \
+  stream=examples/${STREAM2} \
+  controller=${PRAVEGA_CONTROLLER} \
+  timestamp-mode=tai \
+  sync=false
