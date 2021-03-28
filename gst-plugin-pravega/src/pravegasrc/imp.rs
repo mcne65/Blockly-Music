@@ -218,6 +218,7 @@ impl ObjectSubclass for PravegaSrc {
 impl ObjectImpl for PravegaSrc {
     fn constructed(&self, obj: &Self::Type) {
         self.parent_constructed(obj);
+        // obj.set_live(true);
         obj.set_format(gst::Format::Time);
     }
 
@@ -568,22 +569,22 @@ impl BaseSrcImpl for PravegaSrc {
 
         let mut index_searcher = IndexSearcher::new(index_reader);
 
-        let start_timestamp = match settings.start_mode {
-            StartMode::NoSeek => PravegaTimestamp::NONE,
-            StartMode::Earliest => {
-                // When start at Earliest, the index will be used to find to the first random-access point.
-                PravegaTimestamp::MIN
-            },
-            StartMode::Latest => {
-                // When starting at Latest, the index will be used to find the last random-access point.
-                PravegaTimestamp::MAX
-            },
-            StartMode::Timestamp => {
-                // The index will be used to find a last random-access point before or on the specified timestamp.
-                PravegaTimestamp::from_nanoseconds(Some(settings.start_timestamp))
-            },
-        };
-        gst_info!(CAT, obj: element, "start_timestamp={}", start_timestamp);
+        // let start_timestamp = match settings.start_mode {
+        //     StartMode::NoSeek => PravegaTimestamp::NONE,
+        //     StartMode::Earliest => {
+        //         // When start at Earliest, the index will be used to find to the first random-access point.
+        //         PravegaTimestamp::MIN
+        //     },
+        //     StartMode::Latest => {
+        //         // When starting at Latest, the index will be used to find the last random-access point.
+        //         PravegaTimestamp::MAX
+        //     },
+        //     StartMode::Timestamp => {
+        //         // The index will be used to find a last random-access point before or on the specified timestamp.
+        //         PravegaTimestamp::from_nanoseconds(Some(settings.start_timestamp))
+        //     },
+        // };
+        // gst_info!(CAT, obj: element, "start_timestamp={}", start_timestamp);
 
         // end_offset is the byte offset in the data stream.
         // The data stream reader will be configured to never read beyond this offset.
@@ -618,14 +619,15 @@ impl BaseSrcImpl for PravegaSrc {
         };
         // We must unlock the state so that seek does not deadlock.
         drop(state);
+        drop(settings);
         gst_info!(CAT, obj: element, "Started");
 
-        if let Some(seek_pos) = start_timestamp.nanoseconds() {
-            element.seek_simple(
-                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-                seek_pos * gst::NSECOND,
-            ).unwrap();
-        }
+        // if let Some(seek_pos) = start_timestamp.nanoseconds() {
+        //     element.seek_simple(
+        //         gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+        //         seek_pos * gst::NSECOND,
+        //     ).unwrap();
+        // }
 
         Ok(())
     }
@@ -650,6 +652,7 @@ impl BaseSrcImpl for PravegaSrc {
             let settings = self.settings.lock().unwrap();
             settings.start_pts_at_zero
         };
+        gst_info!(CAT, obj: src, "do_seek: start_pts_at_zero={}", start_pts_at_zero);
 
         let mut state = self.state.lock().unwrap();
 
@@ -673,10 +676,20 @@ impl BaseSrcImpl for PravegaSrc {
         let segment = segment.downcast_mut::<gst::format::Time>().unwrap();
         // In the input segment parameter, start, position, and time are all set to the desired timestamp.
         // If this is the initial seek, these will be all 0, and we will seek to the first record in the index.
+        let timestamp = segment.get_time().nseconds().unwrap();
         segment.set_start(0);
         segment.set_position(0);
-        let timestamp = segment.get_time().nseconds().unwrap();
+        segment.set_time(0);
+
+        let timestamp = if timestamp == 0 {
+            gst_info!(CAT, obj: src, "do_seek: initial seek");
+            let settings = self.settings.lock().unwrap();
+            settings.start_timestamp
+        } else {
+            timestamp
+        };
         let timestamp = PravegaTimestamp::from_nanoseconds(Some(timestamp));
+        gst_info!(CAT, obj: src, "do_seek: searching index for timestamp={:?}", timestamp);
         // Determine Pravega stream offset for this timestamp by searching the index.
         let index_record = index_searcher.search_timestamp(timestamp);
         gst_info!(CAT, obj: src, "do_seek: index_record={:?}", index_record);
