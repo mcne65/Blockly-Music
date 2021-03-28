@@ -656,6 +656,50 @@ impl ElementImpl for PravegaTC {
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
         gst_trace!(CAT, obj: element, "Changing state {:?}", transition);
 
+        let seek_pos = 1620508667919877960 * gst::NSECOND + 34 * gst::SECOND;
+        // let seek_pos = 0 * gst::SECOND;
+        gst_log!(CAT, obj: element, "seek_pos={:?}", seek_pos.nanoseconds());
+
+        let pipeline = element.get_parent().unwrap().downcast::<gst::Pipeline>().unwrap();
+        gst_log!(CAT, obj: element, "parent={:?}", pipeline);
+        gst_log!(CAT, obj: element, "parent.name={:?}", pipeline.get_name());
+        let children = pipeline.get_children();
+        gst_log!(CAT, obj: element, "children={:?}", children);
+        let src = pipeline.get_child_by_name("src").unwrap();
+        gst_log!(CAT, obj: element, "src={:?}", src);
+        src.set_property("start-timestamp", &seek_pos.nanoseconds().unwrap()).unwrap();
+        // src.set_property("start-mode", &3).unwrap();
+
+        match transition {
+            // gst::StateChange::NullToReady => {}
+            gst::StateChange::ReadyToPaused => {
+                // let seek_pos = 1616872292866678673 * gst::NSECOND + 30 * gst::SECOND;
+                // gst_info!(CAT, obj: element, "Seeking to {:?}", seek_pos);
+                // element.seek_simple(
+                //     gst::SeekFlags::KEY_UNIT,
+                //     seek_pos,
+                // ).unwrap();
+            }
+            gst::StateChange::PausedToPlaying => {                
+                // let seek_pos = 1616872292866678673 * gst::NSECOND + 30 * gst::SECOND;
+                // gst_info!(CAT, obj: element, "Seeking to {:?}", seek_pos);
+                // self.sinkpad.get_parent_element().unwrap().seek_simple(gst::SeekFlags::KEY_UNIT, seek_pos).unwrap();
+                // element.seek_simple(
+                //     gst::SeekFlags::KEY_UNIT,
+                //     seek_pos,
+                // ).unwrap();
+            }
+            // gst::StateChange::PlayingToPaused => {}
+            // gst::StateChange::PausedToReady => {}
+            // gst::StateChange::ReadyToNull => {}
+            // gst::StateChange::NullToNull => {}
+            // gst::StateChange::ReadyToReady => {}
+            // gst::StateChange::PausedToPaused => {}
+            // gst::StateChange::PlayingToPlaying => {}
+            // gst::StateChange::__Unknown(_) => {}
+            _ => {}
+        }
+
         // Call the parent class' implementation of ::change_state()
         self.parent_change_state(element, transition)
     }
