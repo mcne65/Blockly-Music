@@ -21,10 +21,15 @@ pravegasrc name=src \
   controller=${PRAVEGA_CONTROLLER} \
   start-mode=timestamp \
   start-pts-at-zero=false \
+! identity silent=false \
 ! decodebin \
+! identity silent=false \
 ! x264enc key-int-max=${FPS} speed-preset=ultrafast bitrate=200 \
+! identity silent=false \
 ! mpegtsmux \
+! identity silent=false \
 ! pravegatc \
+! identity silent=false \
 ! pravegasink \
   stream=examples/${STREAM2} \
   controller=${PRAVEGA_CONTROLLER} \
