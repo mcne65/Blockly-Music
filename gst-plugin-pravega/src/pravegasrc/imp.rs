@@ -309,7 +309,7 @@ impl ObjectImpl for PravegaSrc {
                 in RFC 3339 format. For example: 2021-12-28T23:41:45.691Z",
                 None,
                 glib::ParamFlags::WRITABLE,
-            ),        
+            ),
         ]});
         PROPERTIES.as_ref()
     }
@@ -674,7 +674,7 @@ impl BaseSrcImpl for PravegaSrc {
         let mut index_searcher = index_searcher.lock().unwrap();
 
         let segment = segment.downcast_mut::<gst::format::Time>().unwrap();
-        
+
         // In the input segment parameter, start, position, and time are all set to the desired timestamp.
         // If this is the initial seek, these will be all 0, and we will seek to the first record in the index.
         let timestamp = segment.get_time().nseconds().unwrap();

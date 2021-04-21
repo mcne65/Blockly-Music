@@ -298,7 +298,7 @@ impl ObjectSubclass for PravegaTC {
     // Called when a new instance is to be created. We need to return an instance
     // of our struct here and also get the class struct passed in case it's needed
     fn with_class(klass: &Self::Class) -> Self {
-        gst_info!(CAT, "with_class");        
+        gst_info!(CAT, "with_class");
         // Create our two pads from the templates that were registered with
         // the class and set all the functions on them.
         //
@@ -460,7 +460,7 @@ impl ObjectImpl for PravegaTC {
                 in RFC 3339 format. For example: 2021-12-28T23:41:45.691Z",
                 None,
                 glib::ParamFlags::WRITABLE,
-            ),        
+            ),
         ]});
         PROPERTIES.as_ref()
     }
@@ -656,7 +656,7 @@ impl ElementImpl for PravegaTC {
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
         gst_trace!(CAT, obj: element, "Changing state {:?}", transition);
 
-        let seek_pos = 1620508667919877960 * gst::NSECOND + 34 * gst::SECOND;
+        let seek_pos = 1_618_976_450_362_581_066 * gst::NSECOND + 34 * gst::SECOND - 1 * gst::MSECOND;
         // let seek_pos = 0 * gst::SECOND;
         gst_log!(CAT, obj: element, "seek_pos={:?}", seek_pos.nanoseconds());
 
@@ -680,7 +680,7 @@ impl ElementImpl for PravegaTC {
                 //     seek_pos,
                 // ).unwrap();
             }
-            gst::StateChange::PausedToPlaying => {                
+            gst::StateChange::PausedToPlaying => {
                 // let seek_pos = 1616872292866678673 * gst::NSECOND + 30 * gst::SECOND;
                 // gst_info!(CAT, obj: element, "Seeking to {:?}", seek_pos);
                 // self.sinkpad.get_parent_element().unwrap().seek_simple(gst::SeekFlags::KEY_UNIT, seek_pos).unwrap();

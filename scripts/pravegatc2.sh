@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Test Pravega Transaction Coordinator.
+# Run before: STREAM=test1 SIZE_SEC=60 scripts/videotestsrc-to-pravega-hls.sh
+
 set -ex
 ROOT_DIR=$(readlink -f $(dirname $0)/..)
 pushd ${ROOT_DIR}/gst-plugin-pravega
@@ -35,4 +38,4 @@ pravegasrc name=src \
   controller=${PRAVEGA_CONTROLLER} \
   timestamp-mode=tai \
   sync=false \
-|& tee /tmp/pravegatc1.log
+|& tee /tmp/pravegatc2.log
