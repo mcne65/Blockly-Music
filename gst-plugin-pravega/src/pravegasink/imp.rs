@@ -35,7 +35,6 @@ use pravega_video::utils;
 
 use crate::counting_writer::CountingWriter;
 use crate::numeric::u64_to_i64_saturating_sub;
-use crate::seekable_byte_stream_writer::SeekableByteStreamWriter;
 
 const PROPERTY_NAME_STREAM: &str = "stream";
 const PROPERTY_NAME_CONTROLLER: &str = "controller";
@@ -114,7 +113,7 @@ enum State {
     Stopped,
     Started {
         client_factory: ClientFactory,
-        writer: CountingWriter<BufWriter<SeekableByteStreamWriter>>,
+        writer: CountingWriter<BufWriter<ByteStreamWriter>>,
         index_writer: ByteStreamWriter,
         last_index_time: PravegaTimestamp,
         // The timestamp that will be written to the index upon end-of-stream.
@@ -553,9 +552,8 @@ impl BaseSinkImpl for PravegaSink {
             gst_info!(CAT, obj: element, "start: Opened Pravega writer for index");
             index_writer.seek_to_tail();
 
-            let seekable_writer = SeekableByteStreamWriter::new(writer).unwrap();
             gst_info!(CAT, obj: element, "start: Buffer size is {}", settings.buffer_size);
-            let buf_writer = BufWriter::with_capacity(settings.buffer_size, seekable_writer);
+            let buf_writer = BufWriter::with_capacity(settings.buffer_size, writer);
             let counting_writer = CountingWriter::new(buf_writer).unwrap();
 
             *state = State::Started {
