@@ -246,8 +246,7 @@ pub fn launch_pipeline_and_get_summary(pipeline_description: &str) -> Result<Buf
     let _ = pipeline.add_property_deep_notify_watch(None, true);
     let summary_list = Arc::new(Mutex::new(Vec::new()));
     let summary_list_clone = summary_list.clone();
-    let sink = pipeline
-        .get_by_name("sink");
+    let sink = pipeline.get_by_name("sink");
     match sink {
         Some(sink) => {
             let sink = sink.downcast::<gst_app::AppSink>().unwrap();
@@ -255,7 +254,7 @@ pub fn launch_pipeline_and_get_summary(pipeline_description: &str) -> Result<Buf
                 gst_app::AppSinkCallbacks::builder()
                     .new_sample(move |sink| {
                         let sample = sink.pull_sample().unwrap();
-                        trace!("sample={:?}", sample);
+                        debug!("sample={:?}", sample);
                         let buffer = sample.get_buffer().unwrap();
                         let summary = BufferSummary {
                             pts: clocktime_to_pravega(buffer.get_pts()),
