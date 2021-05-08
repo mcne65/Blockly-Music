@@ -99,14 +99,7 @@ mod test {
                             let sample = sink.pull_sample().unwrap();
                             debug!("sample={:?}", sample);
                             let buffer = sample.get_buffer().unwrap();
-                            let pts = clocktime_to_pravega(buffer.get_pts());
-                            let summary = BufferSummary {
-                                pts,
-                                size: buffer.get_size() as u64,
-                                offset: buffer.get_offset(),
-                                offset_end: buffer.get_offset_end(),
-                                flags: buffer.get_flags(),
-                            };
+                            let summary = BufferSummary::from(buffer);
                             let mut summary_list = summary_list_clone.lock().unwrap();
                             summary_list.push(summary);
                             Ok(gst::FlowSuccess::Ok)

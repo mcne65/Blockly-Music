@@ -10,7 +10,7 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::{PravegaTimestamp, SECOND, MSECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, SECOND, MSECOND};
     use rstest::rstest;
     use std::convert::TryFrom;
     #[allow(unused_imports)]
@@ -95,24 +95,32 @@ mod test {
 
     #[rstest]
     // #[case(ContainerFormat::MpegTs)]
-    #[case(ContainerFormat::Mp4)]       // MP4 support is not yet working
+    #[case(ContainerFormat::Mp4)]
     fn test_compressed_video(#[case] container_format: ContainerFormat) {
         let test_config = get_test_config();
         info!("test_config={:?}", test_config);
         gst_init();
         let stream_name = &format!("test-compressed-video-{}-{}", test_config.test_id, Uuid::new_v4())[..];
 
-        let (container_pipeline, pts_margin, random_start_pts_margin) = match container_format {
+        let (container_pipeline, fragment_duration, pts_margin, random_start_pts_margin) = match container_format {
             ContainerFormat::MpegTs => {
+                // MPEG TS requires large margins to pass tests.
                 (format!("! mpegtsmux"),
+                 10 * MSECOND,
                  126 * MSECOND,
                  1000 * MSECOND,
                 )
             },
             ContainerFormat::Mp4 => {
-                (format!("! mp4mux streamable=true fragment-duration=100 ! fragmp4pay"),
-                 126 * MSECOND,
-                 1000 * MSECOND,
+                let fragment_duration: TimeDelta = 100 * MSECOND;
+                (format!("\
+                    ! mp4mux streamable=true fragment-duration={fragment_duration} \
+                    ! identity name=mp4mux_ silent=false \
+                    ! fragmp4pay",
+                fragment_duration = fragment_duration.milliseconds().unwrap()),
+                fragment_duration,
+                 0 * MSECOND,
+                 0 * MSECOND,
                 )
             },
         };
@@ -134,8 +142,10 @@ mod test {
             ! videoconvert \
             ! timeoverlay valignment=bottom font-desc=\"Sans 48px\" shaded-background=true \
             ! videoconvert \
-            ! x264enc key-int-max=30 bitrate=100 \
+            ! x264enc key-int-max=30 bitrate=100 tune=zerolatency \
+            ! identity name=h264___ silent=false \
             {container_pipeline} \
+            ! identity name=fragmp4 silent=false \
             ! tee name=t \
             t. ! queue ! appsink name=sink sync=false \
             t. ! pravegasink {pravega_plugin_properties} \
@@ -147,9 +157,10 @@ mod test {
             container_pipeline = container_pipeline,
         );
         let summary_written = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
-        debug!("summary_written={:?}", summary_written);
+        summary_written.dump("summary_written");
+        debug!("summary_written={}", summary_written);
 
-        info!("#### Read video stream from beginning");
+        info!("#### Read video stream from beginning with decoding");
         let pipeline_description = format!(
             "pravegasrc {pravega_plugin_properties} \
               start-mode=no-seek \
@@ -158,14 +169,12 @@ mod test {
             ! appsink name=sink sync=false",
             pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
         );
-        let summary = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
-        debug!("summary={:?}", summary);
-        let num_buffers_actual = summary.num_buffers();
-        let first_pts_actual = summary.first_pts();
-        let last_pts_actual = summary.last_pts();
-        info!("Expected: num_buffers={}, first_pts={}, last_pts={}", num_buffers_written, first_pts_written, last_pts_written);
-        info!("Actual:   num_buffers={}, first_pts={}, last_pts={}", num_buffers_actual, first_pts_actual, last_pts_actual);
-        // TODO: Why is PTS is off by 125 ms?
+        let summary_full = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+        summary_full.dump("summary_full");
+        debug!("summary_full={}", summary_full);
+        let num_buffers_actual = summary_full.num_buffers();
+        let first_pts_actual = summary_full.first_pts();
+        let last_pts_actual = summary_full.last_pts();
         assert_timestamp_approx_eq("first_pts_actual", first_pts_actual, first_pts_written, 0 * SECOND, pts_margin);
         assert_timestamp_approx_eq("last_pts_actual", last_pts_actual, last_pts_written, 0 * SECOND, pts_margin);
         assert_eq!(num_buffers_actual, num_buffers_written as u64);
@@ -185,6 +194,8 @@ mod test {
         info!("#### Truncate stream");
         let truncate_sec = 1;
         let truncate_before_pts = first_pts_written + truncate_sec * SECOND;
+        info!("first_pts_written=  {:?}", first_pts_written);
+        info!("truncate_before_pts={:?}", truncate_before_pts);
         truncate_stream(test_config.client_config.clone(), test_config.scope.clone(), stream_name.to_owned(), truncate_before_pts);
 
         info!("#### Read video from truncated position without decoding");
@@ -193,17 +204,15 @@ mod test {
             ! appsink name=sink sync=false",
             pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
         );
-        let summary = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
-        debug!("summary={:?}", summary);
-        let num_buffers_actual = summary.num_buffers();
-        let first_pts_actual = summary.first_pts();
-        let last_pts_actual = summary.last_pts();
+        let summary_trun_read = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+        summary_trun_read.dump("summary_trun_read");
+        debug!("summary_trun_read={}", summary_trun_read);
+        let first_pts_actual = summary_trun_read.first_pts();
+        let last_pts_actual = summary_trun_read.last_pts();
         let first_pts_expected = truncate_before_pts;
-        info!("Expected: num_buffers={}, first_pts={}, last_pts={}", "??", first_pts_expected, last_pts_written);
-        info!("Actual:   num_buffers={}, first_pts={}, last_pts={}", num_buffers_actual, first_pts_actual, last_pts_actual);
-        // TODO: Why is PTS is off by 125 ms?
+        let last_pts_expected_min = last_pts_written - fragment_duration;
         assert_timestamp_approx_eq("first_pts_actual", first_pts_actual, first_pts_expected, pts_margin, pts_margin);
-        assert_timestamp_approx_eq("last_pts_actual", last_pts_actual, last_pts_written, pts_margin, pts_margin);
+        assert_between_timestamp("last_pts_actual", last_pts_actual, last_pts_expected_min - pts_margin, last_pts_written + pts_margin);
 
         if false {
             info!("#### Play video stream from truncated position on screen");
@@ -220,21 +229,20 @@ mod test {
         info!("#### Read video from truncated position with decoding");
         let pipeline_description = format!(
             "pravegasrc {pravega_plugin_properties} \
+            ! identity name=src_____ silent=false \
             ! decodebin \
+            ! identity name=decoded silent=false \
             ! appsink name=sink sync=false",
             pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
         );
-        let summary = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
-        debug!("summary={:?}", summary);
-        let num_buffers_actual = summary.num_buffers();
-        let first_pts_actual = summary.first_pts();
-        let last_pts_actual = summary.last_pts();
+        let summary_trunc_decoded = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+        summary_trunc_decoded.dump("summary_trunc_decoded");
+        debug!("summary_trunc_decoded={}", summary_trunc_decoded);
+        let num_buffers_actual = summary_trunc_decoded.num_buffers();
+        let first_pts_actual = summary_trunc_decoded.first_pts();
+        let last_pts_actual = summary_trunc_decoded.last_pts();
         let first_pts_expected = truncate_before_pts;
         let num_buffers_expected = num_buffers_written - truncate_sec * fps;
-        info!("Expected: num_buffers={}, first_pts={}, last_pts={}", num_buffers_expected, first_pts_expected, last_pts_written);
-        info!("Actual:   num_buffers={}, first_pts={}, last_pts={}", num_buffers_actual, first_pts_actual, last_pts_actual);
-        // TODO: Why is PTS is off by 125 ms?
-        // Note that first pts may be off by 1 second. This is probably caused by missing MPEG TS initialization packets at precise start.
         assert_timestamp_approx_eq("first_pts_actual", first_pts_actual, first_pts_expected,
                                    pts_margin, pts_margin + random_start_pts_margin);
         assert_timestamp_approx_eq("last_pts_actual", last_pts_actual, last_pts_written,
