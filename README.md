@@ -594,6 +594,7 @@ This thread will run in the background.
 - [MPEG Timing Model](http://www.bretl.com/mpeghtml/timemdl.HTM)
 - [A Guide to MPEG Fundamentals and Protocol Analysis](http://www.img.lx.it.pt/~fp/cav/Additional_material/MPEG2_overview.pdf)
 - [TSDuck, The MPEG Transport Stream Toolkit](https://tsduck.io/)
+- [RFC 8216 - HTTP Live Streaming](https://tools.ietf.org/html/rfc8216)
 
 # License
 

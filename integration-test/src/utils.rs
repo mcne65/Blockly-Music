@@ -341,11 +341,20 @@ pub fn monitor_pipeline_until_eos(pipeline: &gst::Pipeline) -> Result<(), Error>
             gst::MessageView::PropertyNotify(p) => {
                 // Identity elements with silent=false will produce this message after watching with `pipeline.add_property_deep_notify_watch(None, true)`.
                 let (_, property_name, value) = p.get();
-                let value = match value {
-                    Some(value) => value.get::<String>().unwrap_or_default().unwrap_or_default(),
-                    None => "none".to_owned(),
+                match value {
+                    Some(value) => match value.get::<String>() {
+                        Ok(value) => match value {
+                            Some(value) => {
+                                if !value.is_empty() {
+                                    debug!("PropertyNotify: {}={}", property_name, value);
+                                }
+                            },
+                            _ => (),
+                        },
+                        _ => {}
+                    },
+                    _ => (),
                 };
-                debug!("PropertyNotify: {}={}", property_name, value);
             },
             _ => (),
         }

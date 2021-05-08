@@ -10,7 +10,8 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::{PravegaTimestamp, HOUR, SECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, HOUR, MSECOND, SECOND};
+    use rstest::rstest;
     #[allow(unused_imports)]
     use tracing::{error, info, debug};
     use uuid::Uuid;
@@ -18,12 +19,29 @@ mod test {
     use crate::rtsp_camera_simulator::{start_or_get_rtsp_test_source, RTSPCameraSimulatorConfigBuilder};
     use crate::utils::*;
 
-    #[test]
-    fn test_rtsp() {
+    #[rstest]
+    // #[case(ContainerFormat::MpegTs)]
+    #[case(ContainerFormat::Mp4)]
+    fn test_rtsp(#[case] container_format: ContainerFormat) {
         gst_init();
         let test_config = &get_test_config();
         info!("test_config={:?}", test_config);
         let stream_name = &format!("test-rtsp-{}-{}", test_config.test_id, Uuid::new_v4())[..];
+
+        let container_pipeline = match container_format {
+            ContainerFormat::MpegTs => {
+                format!("! mpegtsmux")
+            },
+            ContainerFormat::Mp4 => {
+                let fragment_duration: TimeDelta = 100 * MSECOND;
+                format!("\
+                    ! mp4mux streamable=true fragment-duration={fragment_duration} \
+                    ! identity name=mp4mux_ silent=false \
+                    ! fragmp4pay",
+                fragment_duration = fragment_duration.milliseconds().unwrap())
+            },
+        };
+
         let fps = 20;
         let rtsp_server_config = RTSPCameraSimulatorConfigBuilder::default()
             .fps(fps)
@@ -53,7 +71,7 @@ mod test {
             ! h264parse \
             ! video/x-h264,alignment=au \
             ! identity silent=false eos-after={num_frames} \
-            ! mpegtsmux \
+            {container_pipeline} \
             ! pravegasink {pravega_plugin_properties} \
               sync=false \
               timestamp-mode=ntp \
@@ -61,6 +79,7 @@ mod test {
            pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
            rtsp_url = rtsp_url,
            num_frames = num_frames_to_record,
+           container_pipeline = container_pipeline,
         );
         let _ = launch_pipeline_and_get_summary(&pipeline_description_record).unwrap();
 
@@ -85,7 +104,7 @@ mod test {
         info!("#### Read recorded stream from Pravega with decoding, part 1");
         let pipeline_description_decode = format!(
             "pravegasrc {pravega_plugin_properties} \
-              start-mode=no-seek \
+              start-mode=earliest \
               end-mode=latest \
               ! decodebin \
             ! appsink name=sink sync=false",
