@@ -8,13 +8,13 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 //
 
-mod gst_plugin_pravega_tests;
 mod hls_tests;
 mod pravegasrc_seek_tests;
 mod pravegasrc_tests;
 mod pravega_service;
 mod rtsp_camera_simulator;
 mod rtsp_tests;
+mod truncation_tests;
 mod utils;
 
 use lazy_static::lazy_static;
