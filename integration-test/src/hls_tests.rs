@@ -10,7 +10,8 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::PravegaTimestamp;
+    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, MSECOND};
+    use rstest::rstest;
     #[allow(unused_imports)]
     use tracing::{error, info, debug};
     use uuid::Uuid;
@@ -21,14 +22,32 @@ mod test {
     /// Test playback using an HLS player.
     /// This is an interactive test.
     /// When executed, it will pause when it expects the user to open a browser to a URL and validate playback.
-    /// To run this test: cargo test hls_rtsp -- --ignored --nocapture --test-threads=1
-    #[test]
+    /// To run this test:
+    ///   1. scripts/pravega-video-server.sh
+    ///   1. cd integration-test ; cargo test hls_rtsp -- --ignored --nocapture --test-threads=1
     #[ignore]
-    fn test_hls_rtsp() {
+    #[rstest]
+    // #[case(ContainerFormat::MpegTs)]
+    #[case(ContainerFormat::Mp4)]
+    fn test_hls_rtsp(#[case] container_format: ContainerFormat) {
         gst_init();
         let test_config = &get_test_config();
         info!("test_config={:?}", test_config);
         let stream_name = &format!("test-hls-{}-{}", test_config.test_id, Uuid::new_v4())[..];
+
+        let container_pipeline = match container_format {
+            ContainerFormat::MpegTs => {
+                format!("! mpegtsmux")
+            },
+            ContainerFormat::Mp4 => {
+                let fragment_duration: TimeDelta = 100 * MSECOND;
+                format!("\
+                    ! mp4mux streamable=true fragment-duration={fragment_duration} \
+                    ! identity name=mp4mux_ silent=false \
+                    ! fragmp4pay",
+                fragment_duration = fragment_duration.milliseconds().unwrap())
+            },
+        };
 
         let player_url = format!("http://localhost:3030/player?scope={scope}&stream={stream_name}",
             scope = test_config.scope, stream_name = stream_name);
@@ -63,7 +82,7 @@ mod test {
             ! h264parse \
             ! video/x-h264,alignment=au \
             ! identity silent=true eos-after={num_frames} \
-            ! mpegtsmux \
+            {container_pipeline} \
             ! pravegasink {pravega_plugin_properties} \
               sync=false \
               timestamp-mode=ntp \
@@ -72,6 +91,7 @@ mod test {
            pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
            rtsp_url = rtsp_url,
            num_frames = num_frames_to_record,
+           container_pipeline = container_pipeline,
         );
         let _ = launch_pipeline_and_get_summary(&pipeline_description_record).unwrap();
 

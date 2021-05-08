@@ -13,7 +13,8 @@ mod test {
     use anyhow::Error;
     use gst::prelude::*;
     use gstpravega::utils::{clocktime_to_pravega, pravega_to_clocktime};
-    use pravega_video::timestamp::{PravegaTimestamp, SECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, MSECOND, SECOND};
+    use rstest::rstest;
     use std::convert::TryFrom;
     use std::sync::Arc;
     use std::time::Instant;
@@ -23,7 +24,7 @@ mod test {
     use crate::*;
     use crate::utils::*;
 
-    fn pravegasrc_seek_test_data_gen(test_config: &TestConfig, stream_name: &str) -> Result<BufferListSummary, Error> {
+    fn pravegasrc_seek_test_data_gen(test_config: &TestConfig, stream_name: &str, container_format: ContainerFormat) -> Result<BufferListSummary, Error> {
         gst_init();
         // first_timestamp: 2001-02-03T04:00:00.000000000Z (981172837000000000 ns, 272548:00:37.000000000)
         let first_utc = "2001-02-03T04:00:00.000Z".to_owned();
@@ -34,13 +35,27 @@ mod test {
         let length_sec = 60;
         let num_buffers_written = length_sec * fps;
 
+        let container_pipeline = match container_format {
+            ContainerFormat::MpegTs => {
+                format!("! mpegtsmux")
+            },
+            ContainerFormat::Mp4 => {
+                let fragment_duration: TimeDelta = 100 * MSECOND;
+                format!("\
+                    ! mp4mux streamable=true fragment-duration={fragment_duration} \
+                    ! identity name=mp4mux_ silent=false \
+                    ! fragmp4pay",
+                fragment_duration = fragment_duration.milliseconds().unwrap())
+            },
+        };
+
         info!("#### Write video stream to Pravega");
         let pipeline_description = format!(
             "videotestsrc name=src timestamp-offset={timestamp_offset} num-buffers={num_buffers} \
             ! video/x-raw,width=320,height=180,framerate={fps}/1 \
             ! videoconvert \
             ! x264enc key-int-max={key_int_max} bitrate=100 \
-            ! mpegtsmux \
+            {container_pipeline} \
             ! tee name=t \
             t. ! queue ! appsink name=sink sync=false \
             t. ! pravegasink {pravega_plugin_properties} \
@@ -50,6 +65,7 @@ mod test {
             num_buffers = num_buffers_written,
             fps = fps,
             key_int_max = key_int_max,
+            container_pipeline = container_pipeline,
         );
         let summary = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
         debug!("summary={}", summary);
@@ -59,12 +75,14 @@ mod test {
     /// Test seeking that occurs in Pravega Video Player.
     /// This starts playback from the beginning, with sync=true, then skips over several seconds.
     /// Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/tutorials/src/bin/basic-tutorial-4.rs
-    #[test]
-    fn test_pravegasrc_seek_player() {
+    #[rstest]
+    #[case(ContainerFormat::MpegTs)]
+    #[case(ContainerFormat::Mp4)]
+    fn test_pravegasrc_seek_player(#[case] container_format: ContainerFormat) {
         let test_config = &get_test_config();
         info!("test_config={:?}", test_config);
         let stream_name = &format!("test-pravegasrc-{}-{}", test_config.test_id, Uuid::new_v4())[..];
-        let summary_written = pravegasrc_seek_test_data_gen(test_config, stream_name).unwrap();
+        let summary_written = pravegasrc_seek_test_data_gen(test_config, stream_name, container_format).unwrap();
         debug!("summary_written={}", summary_written);
         let first_pts_written = summary_written.first_valid_pts();
         let last_pts_written = summary_written.last_valid_pts();
@@ -160,7 +178,21 @@ mod test {
                         },
                         gst::MessageView::PropertyNotify(p) => {
                             // Identity elements with silent=false will produce this message after watching with `pipeline.add_property_deep_notify_watch(None, true)`.
-                            debug!("{:?}", p);
+                            let (_, property_name, value) = p.get();
+                            match value {
+                                Some(value) => match value.get::<String>() {
+                                    Ok(value) => match value {
+                                        Some(value) => {
+                                            if !value.is_empty() {
+                                                debug!("PropertyNotify: {}={}", property_name, value);
+                                            }
+                                        },
+                                        _ => (),
+                                    },
+                                    _ => {}
+                                },
+                                _ => (),
+                            };
                         }
                         _ => (),
                     }
