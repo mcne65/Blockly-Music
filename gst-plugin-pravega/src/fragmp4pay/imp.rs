@@ -9,12 +9,12 @@
 //
 
 use glib::subclass::prelude::*;
-use gst::{ClockTime, FlowSuccess};
+use gst::ClockTime;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
+#[allow(unused_imports)]
 use gst::{gst_debug, gst_error, gst_info, gst_log, gst_trace};
 use once_cell::sync::Lazy;
-use pravega_video::timestamp::PravegaTimestamp;
 use std::convert::TryInto;
 use std::sync::Mutex;
 
@@ -22,47 +22,41 @@ const ELEMENT_CLASS_NAME: &str = "FragMp4Pay";
 const ELEMENT_LONG_NAME: &str = "Fragmented MP4 Payloader";
 const DEBUG_CATEGORY: &str = "fragmp4pay";
 
-#[derive(Debug)]
-struct Settings {
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-        }
-    }
+struct StartedState {
+    // Atoms in init sequence that must be repeated at each key frame.
+    ftype_atom: Vec<u8>,
+    moov_atom: Vec<u8>,
+    // Atoms that must be buffered and pushed as a single buffer.
+    moof_atom: Vec<u8>,
+    mdat_size: u64,
+    mdat_atom: Vec<u8>,
+    mdat_first_pts: ClockTime,
+    mdat_buffer_flags: gst::BufferFlags,
 }
 
 enum State {
     Started {
-        // Atoms in init sequence that must be repeated at each key frame.
-        ftype_atom: Vec<u8>,
-        moov_atom: Vec<u8>,
-        // Atoms that must be buffered and pushed as a single buffer.
-        moof_atom: Vec<u8>,
-        mdat_size: u64,
-        mdat_atom: Vec<u8>,
-        mdat_first_pts: ClockTime,
-        mdat_buffer_flags: gst::BufferFlags,
-    },
+        state: StartedState,
+    }
 }
 
 impl Default for State {
     fn default() -> State {
         State::Started {
-            ftype_atom: Vec::new(),
-            moov_atom: Vec::new(),
-            moof_atom: Vec::new(),
-            mdat_size: 0,
-            mdat_atom: Vec::new(),
-            mdat_first_pts: ClockTime::none(),
-            mdat_buffer_flags: gst::BufferFlags::empty(),
+            state: StartedState {
+                ftype_atom: Vec::new(),
+                moov_atom: Vec::new(),
+                moof_atom: Vec::new(),
+                mdat_size: 0,
+                mdat_atom: Vec::new(),
+                mdat_first_pts: ClockTime::none(),
+                mdat_buffer_flags: gst::BufferFlags::empty(),
+                }
         }
     }
 }
 
 pub struct FragMp4Pay {
-    settings: Mutex<Settings>,
     state: Mutex<State>,
     srcpad: gst::Pad,
     sinkpad: gst::Pad,
@@ -81,38 +75,18 @@ impl FragMp4Pay {
         &self,
         pad: &gst::Pad,
         element: &super::FragMp4Pay,
-        mut buffer: gst::Buffer,
+        buffer: gst::Buffer,
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
         gst_debug!(CAT, obj: pad, "Handling buffer {:?}", buffer);
 
         // let settings = self.settings.lock().unwrap();
         let mut state = self.state.lock().unwrap();
 
-        let (ftype_atom,
-            moov_atom,
-            moof_atom,
-            mdat_size,
-            mdat_atom,
-            mdat_first_pts,
-            mdat_buffer_flags,
-   ) = match *state {
+        let state = match *state {
             State::Started {
-                ref mut ftype_atom,
-                ref mut moov_atom,
-                ref mut moof_atom,
-                ref mut mdat_size,
-                ref mut mdat_atom,
-                ref mut mdat_first_pts,
-                ref mut mdat_buffer_flags,
-               ..
-            } => (ftype_atom,
-                 moov_atom,
-                 moof_atom,
-                 mdat_size,
-                 mdat_atom,
-                 mdat_first_pts,
-                 mdat_buffer_flags,
-            ),
+                ref mut state,
+                ..
+            } => state,
         };
 
         {
@@ -127,40 +101,40 @@ impl FragMp4Pay {
             const ATOM_TYPE_MOOF: u32 = 1836019558;
             const ATOM_TYPE_MDAT: u32 = 1835295092;
 
-            if *mdat_size > 0 {
+            if state.mdat_size > 0 {
                 // We expect the mdat body.
-                if mdat_first_pts.is_none() {
-                    *mdat_first_pts = buffer.get_pts();
+                if state.mdat_first_pts.is_none() {
+                    state.mdat_first_pts = buffer.get_pts();
                 }
-                mdat_atom.extend_from_slice(input_buf);
-                if (mdat_atom.len() as u64) < *mdat_size {
-                    gst_debug!(CAT, obj: pad, "incomplete mdat_atom=[{}], mdat_first_pts={}", mdat_atom.len(), mdat_first_pts);
+                state.mdat_atom.extend_from_slice(input_buf);
+                if (state.mdat_atom.len() as u64) < state.mdat_size {
+                    gst_debug!(CAT, obj: pad, "incomplete mdat_atom=[{}], mdat_first_pts={}", state.mdat_atom.len(), state.mdat_first_pts);
                     Ok(gst::FlowSuccess::Ok)
                 } else {
-                    assert_eq!(mdat_atom.len() as u64, *mdat_size);
-                    gst_debug!(CAT, obj: pad, "complete mdat_atom=[{}], mdat_first_pts={}", mdat_atom.len(), mdat_first_pts);
+                    assert_eq!(state.mdat_atom.len() as u64, state.mdat_size);
+                    gst_debug!(CAT, obj: pad, "complete mdat_atom=[{}], mdat_first_pts={}", state.mdat_atom.len(), state.mdat_first_pts);
 
                     // We have the complete mdat atom. Push everything downstream.
                     // TODO: Only send ftype, moov on key frames.
-                    let output_buf_len = ftype_atom.len() + moov_atom.len() + moof_atom.len() + mdat_atom.len();
+                    let output_buf_len = state.ftype_atom.len() + state.moov_atom.len() + state.moof_atom.len() + state.mdat_atom.len();
                     let mut gst_buffer = gst::Buffer::with_size(output_buf_len).unwrap();
                     {
                         let buffer_ref = gst_buffer.get_mut().unwrap();
-                        buffer_ref.set_pts(*mdat_first_pts);
-                        buffer_ref.set_flags(*mdat_buffer_flags);
+                        buffer_ref.set_pts(state.mdat_first_pts);
+                        buffer_ref.set_flags(state.mdat_buffer_flags);
                         let mut buffer_map = buffer_ref.map_writable().unwrap();
                         let slice = buffer_map.as_mut_slice();
                         let mut pos = 0;
-                        slice[pos..pos+ftype_atom.len()].copy_from_slice(ftype_atom);
-                        pos += ftype_atom.len();
-                        slice[pos..pos+moov_atom.len()].copy_from_slice(moov_atom);
-                        pos += moov_atom.len();
-                        slice[pos..pos+moof_atom.len()].copy_from_slice(moof_atom);
-                        pos += moof_atom.len();
-                        slice[pos..pos+mdat_atom.len()].copy_from_slice(mdat_atom);
+                        slice[pos..pos+state.ftype_atom.len()].copy_from_slice(&state.ftype_atom);
+                        pos += state.ftype_atom.len();
+                        slice[pos..pos+state.moov_atom.len()].copy_from_slice(&state.moov_atom);
+                        pos += state.moov_atom.len();
+                        slice[pos..pos+state.moof_atom.len()].copy_from_slice(&state.moof_atom);
+                        pos += state.moof_atom.len();
+                        slice[pos..pos+state.mdat_atom.len()].copy_from_slice(&state.mdat_atom);
                     }
-                    *mdat_size = 0;
-                    mdat_atom.clear();
+                    state.mdat_size = 0;
+                    state.mdat_atom.clear();
                     self.srcpad.push(gst_buffer)
                 }
             } else {
@@ -170,28 +144,28 @@ impl FragMp4Pay {
                 gst_debug!(CAT, obj: pad, "atom_size={}, atom_type={}", atom_size, atom_type);
                 match atom_type {
                     ATOM_TYPE_FTYPE => {
-                        ftype_atom.clear();
-                        ftype_atom.extend_from_slice(input_buf);
-                        gst_debug!(CAT, obj: pad, "ftype_atom={:?}", ftype_atom);
+                        state.ftype_atom.clear();
+                        state.ftype_atom.extend_from_slice(input_buf);
+                        gst_debug!(CAT, obj: pad, "ftype_atom={:?}", state.ftype_atom);
                     },
                     ATOM_TYPE_MOOV => {
-                        moov_atom.clear();
-                        moov_atom.extend_from_slice(input_buf);
-                        gst_debug!(CAT, obj: pad, "moov_atom={:?}", moov_atom);
+                        state.moov_atom.clear();
+                        state.moov_atom.extend_from_slice(input_buf);
+                        gst_debug!(CAT, obj: pad, "moov_atom={:?}", state.moov_atom);
                     },
                     ATOM_TYPE_MOOF => {
-                        moof_atom.clear();
-                        moof_atom.extend_from_slice(input_buf);
-                        gst_debug!(CAT, obj: pad, "moof_atom={:?}", moof_atom);
+                        state.moof_atom.clear();
+                        state.moof_atom.extend_from_slice(input_buf);
+                        gst_debug!(CAT, obj: pad, "moof_atom={:?}", state.moof_atom);
                     },
                     ATOM_TYPE_MDAT => {
-                        *mdat_size = atom_size as u64;
-                        *mdat_first_pts = buffer.get_pts();
-                        *mdat_buffer_flags = buffer.get_flags();
-                        mdat_atom.clear();
-                        mdat_atom.extend_from_slice(input_buf);
+                        state.mdat_size = atom_size as u64;
+                        state.mdat_first_pts = buffer.get_pts();
+                        state.mdat_buffer_flags = buffer.get_flags();
+                        state.mdat_atom.clear();
+                        state.mdat_atom.extend_from_slice(input_buf);
                         gst_debug!(CAT, obj: pad, "new mdat_atom={:?}, mdat_first_pts={}, mdat_buffer_flags={:?}",
-                            mdat_atom, mdat_first_pts, mdat_buffer_flags);
+                        state.mdat_atom, state.mdat_first_pts, state.mdat_buffer_flags);
                     },
                     _ => {},
                 }
@@ -282,7 +256,6 @@ impl ObjectSubclass for FragMp4Pay {
             .build();
 
         Self {
-            settings: Mutex::new(Default::default()),
             state: Mutex::new(Default::default()),
             srcpad,
             sinkpad,
@@ -295,24 +268,6 @@ impl ObjectImpl for FragMp4Pay {
         self.parent_constructed(obj);
         obj.add_pad(&self.sinkpad).unwrap();
         obj.add_pad(&self.srcpad).unwrap();
-    }
-
-    fn properties() -> &'static [glib::ParamSpec] {
-        static PROPERTIES: Lazy<Vec<glib::ParamSpec>> = Lazy::new(|| { vec![
-        ]});
-        PROPERTIES.as_ref()
-    }
-
-    fn set_property(
-        &self,
-        obj: &Self::Type,
-        _id: usize,
-        value: &glib::Value,
-        pspec: &glib::ParamSpec,
-    ) {
-        match pspec.get_name() {
-        _ => unimplemented!(),
-        };
     }
 }
 
@@ -360,7 +315,7 @@ impl ElementImpl for FragMp4Pay {
         element: &Self::Type,
         transition: gst::StateChange,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        gst_trace!(CAT, obj: element, "Changing state {:?}", transition);
+        gst_debug!(CAT, obj: element, "Changing state {:?}", transition);
         self.parent_change_state(element, transition)
     }
 }
