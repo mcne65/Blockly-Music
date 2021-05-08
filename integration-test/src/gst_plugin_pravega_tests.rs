@@ -94,8 +94,8 @@ mod test {
     }
 
     #[rstest]
-    #[case(ContainerFormat::MpegTs)]
-    //#[case(ContainerFormat::Mp4)]       // MP4 support is not yet working
+    // #[case(ContainerFormat::MpegTs)]
+    #[case(ContainerFormat::Mp4)]       // MP4 support is not yet working
     fn test_compressed_video(#[case] container_format: ContainerFormat) {
         let test_config = get_test_config();
         info!("test_config={:?}", test_config);
@@ -110,7 +110,7 @@ mod test {
                 )
             },
             ContainerFormat::Mp4 => {
-                (format!("! mp4mux streamable=true fragment-duration=100"),
+                (format!("! mp4mux streamable=true fragment-duration=100 ! fragmp4pay"),
                  126 * MSECOND,
                  1000 * MSECOND,
                 )
@@ -154,6 +154,7 @@ mod test {
             "pravegasrc {pravega_plugin_properties} \
               start-mode=no-seek \
             ! decodebin \
+            ! identity silent=false \
             ! appsink name=sink sync=false",
             pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
         );
