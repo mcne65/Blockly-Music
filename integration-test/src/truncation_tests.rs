@@ -19,7 +19,7 @@ mod test {
     use crate::*;
     use crate::utils::*;
 
-    /// Test pravegasink and pravegasrc with raw video (uncompressed).
+    /// Test truncation with raw video (uncompressed).
     /// This avoids any complexities caused by video encoding and decoding.
     #[test]
     fn test_raw_video() {
@@ -94,7 +94,7 @@ mod test {
     }
 
     #[rstest]
-    // #[case(ContainerFormat::MpegTs)]
+    #[case(ContainerFormat::MpegTs)]
     #[case(ContainerFormat::Mp4)]
     fn test_compressed_video(#[case] container_format: ContainerFormat) {
         let test_config = get_test_config();
