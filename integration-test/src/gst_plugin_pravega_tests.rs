@@ -10,7 +10,8 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, SECOND, MSECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, SECOND, MSECOND};
+    use rstest::rstest;
     use std::convert::TryFrom;
     #[allow(unused_imports)]
     use tracing::{error, info, debug};
@@ -92,37 +93,29 @@ mod test {
         info!("#### END");
     }
 
-    #[test]
-    fn test_mpeg_ts_video() {
+    #[rstest]
+    #[case(ContainerFormat::MpegTs)]
+    //#[case(ContainerFormat::Mp4)]       // MP4 support is not yet working
+    fn test_compressed_video(#[case] container_format: ContainerFormat) {
         let test_config = get_test_config();
         info!("test_config={:?}", test_config);
-        let compression_pipeline = format!(
-            "x264enc key-int-max=30 bitrate=100 \
-            ! mpegtsmux",
-        );
-        let pts_margin = 126 * MSECOND;
-        let random_start_pts_margin = 1000 * MSECOND;
-        test_compressed_video(test_config, compression_pipeline, pts_margin, random_start_pts_margin)
-    }
-
-    // TODO: MP4 support is not yet working. See scripts/mp4-test*.sh.
-    #[test]
-    #[ignore]
-    fn test_mp4_video() {
-        let test_config = get_test_config();
-        info!("test_config={:?}", test_config);
-        let compression_pipeline = format!(
-            "x264enc key-int-max=30 bitrate=100 \
-            ! mp4mux streamable=true fragment-duration=100",
-        );
-        let pts_margin = 126 * MSECOND;
-        let random_start_pts_margin = 1000 * MSECOND;
-        test_compressed_video(test_config, compression_pipeline, pts_margin, random_start_pts_margin)
-    }
-
-    fn test_compressed_video(test_config: TestConfig, compression_pipeline: String, pts_margin: TimeDelta, random_start_pts_margin:TimeDelta) {
         gst_init();
         let stream_name = &format!("test-compressed-video-{}-{}", test_config.test_id, Uuid::new_v4())[..];
+
+        let (container_pipeline, pts_margin, random_start_pts_margin) = match container_format {
+            ContainerFormat::MpegTs => {
+                (format!("! mpegtsmux"),
+                 126 * MSECOND,
+                 1000 * MSECOND,
+                )
+            },
+            ContainerFormat::Mp4 => {
+                (format!("! mp4mux streamable=true fragment-duration=100"),
+                 126 * MSECOND,
+                 1000 * MSECOND,
+                )
+            },
+        };
 
         // first_timestamp: 2001-02-03T04:00:00.000000000Z (981172837000000000 ns, 272548:00:37.000000000)
         let first_utc = "2001-02-03T04:00:00.000Z".to_owned();
@@ -141,7 +134,8 @@ mod test {
             ! videoconvert \
             ! timeoverlay valignment=bottom font-desc=\"Sans 48px\" shaded-background=true \
             ! videoconvert \
-            ! {compression_pipeline} \
+            ! x264enc key-int-max=30 bitrate=100 \
+            {container_pipeline} \
             ! tee name=t \
             t. ! queue ! appsink name=sink sync=false \
             t. ! pravegasink {pravega_plugin_properties} \
@@ -150,7 +144,7 @@ mod test {
             timestamp_offset = first_pts_written.nanoseconds().unwrap(),
             num_buffers = num_buffers_written,
             fps = fps,
-            compression_pipeline = compression_pipeline,
+            container_pipeline = container_pipeline,
         );
         let summary_written = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
         debug!("summary_written={:?}", summary_written);
