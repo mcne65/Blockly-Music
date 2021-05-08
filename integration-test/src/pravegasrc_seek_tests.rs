@@ -98,15 +98,8 @@ mod test {
                         .new_sample(move |sink| {
                             let sample = sink.pull_sample().unwrap();
                             debug!("sample={:?}", sample);
-                            let buffer = sample.buffer().unwrap();
-                            let pts = clocktime_to_pravega(buffer.pts());
-                            let summary = BufferSummary {
-                                pts,
-                                size: buffer.size() as u64,
-                                offset: buffer.offset(),
-                                offset_end: buffer.offset_end(),
-                                flags: buffer.flags(),
-                            };
+                            let buffer = sample.get_buffer().unwrap();
+                            let summary = BufferSummary::from(buffer);
                             let mut summary_list = summary_list_clone.lock().unwrap();
                             summary_list.push(summary);
                             Ok(gst::FlowSuccess::Ok)

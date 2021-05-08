@@ -41,6 +41,7 @@ pub fn gst_init() {
 #[derive(Clone, Debug)]
 pub struct BufferSummary {
     pub pts: PravegaTimestamp,
+    pub duration: TimeDelta,
     pub size: u64,
     /// Not used for equality.
     pub offset: u64,
@@ -55,8 +56,19 @@ impl PartialEq for BufferSummary {
         self.pts == other.pts &&
             self.size == other.size &&
             self.flags.contains(gst::BufferFlags::DELTA_UNIT) == other.flags.contains(gst::BufferFlags::DELTA_UNIT)
-            // TODO: Also compare DISCONT flag but first event from mp4mux has inconsistent DISCONT flag.
-            // self.flags.contains(gst::BufferFlags::DISCONT) == other.flags.contains(gst::BufferFlags::DISCONT)
+    }
+}
+
+impl From<&gst::BufferRef> for BufferSummary {
+    fn from(buffer: &gst::BufferRef) -> BufferSummary {
+        BufferSummary {
+            pts: clocktime_to_pravega(buffer.get_pts()),
+            duration: TimeDelta(buffer.get_duration().nanoseconds().map(|t| t as i128)),
+            size: buffer.get_size() as u64,
+            offset: buffer.get_offset(),
+            offset_end: buffer.get_offset_end(),
+            flags: buffer.get_flags(),
+        }
     }
 }
 
@@ -115,6 +127,32 @@ impl BufferListSummary {
         }
     }
 
+    /// Returns minimum PTS.
+    pub fn min_pts(&self) -> PravegaTimestamp {
+        let t = self.buffer_summary_list
+            .iter()
+            .map(|s| s.pts)
+            .filter(|c| c.is_some())
+            .min();
+        match t {
+            Some(t) => t.to_owned(),
+            None => PravegaTimestamp::none(),
+        }
+    }
+
+    /// Returns maximum PTS + duration.
+    pub fn max_pts_plus_duration(&self) -> PravegaTimestamp {
+        let t = self.buffer_summary_list
+            .iter()
+            .map(|s| s.pts + s.duration.or_zero())
+            .filter(|c| c.is_some())
+            .max();
+        match t {
+            Some(t) => t.to_owned(),
+            None => PravegaTimestamp::none(),
+        }
+    }
+
     /// Returns first buffer with PTS after given PTS.
     pub fn first_buffer_after(&self, pts: PravegaTimestamp) -> Option<BufferSummary> {
         self.buffer_summary_list
@@ -133,8 +171,9 @@ impl BufferListSummary {
             .collect()
     }
 
+    /// Returns timespan of buffers, including duration.
     pub fn pts_range(&self) -> TimeDelta {
-        self.last_valid_pts() - self.first_valid_pts()
+        self.max_pts_plus_duration() - self.first_valid_pts()
     }
 
     /// Returns list of PTSs of all non-delta frames.
@@ -169,9 +208,10 @@ impl BufferListSummary {
 impl fmt::Display for BufferListSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         f.write_fmt(format_args!("BufferListSummary {{ num_buffers: {}, num_buffers_with_valid_pts: {}, \
-            first_pts: {}, first_valid_pts: {}, last_valid_pts: {}, pts_range: {} }}",
+            first_pts: {}, first_valid_pts: {}, min_pts: {}, last_valid_pts: {}, max_pts_plus_duration: {}, pts_range: {} }}",
             self.num_buffers(), self.num_buffers_with_valid_pts(),
-            self.first_pts(), self.first_valid_pts(), self.last_valid_pts(), self.pts_range()))
+            self.first_pts(), self.first_valid_pts(), self.min_pts(),
+            self.last_valid_pts(), self.max_pts_plus_duration(), self.pts_range()))
     }
 }
 
@@ -256,14 +296,8 @@ pub fn launch_pipeline_and_get_summary(pipeline_description: &str) -> Result<Buf
                     .new_sample(move |sink| {
                         let sample = sink.pull_sample().unwrap();
                         trace!("sample={:?}", sample);
-                        let buffer = sample.buffer().unwrap();
-                        let summary = BufferSummary {
-                            pts: clocktime_to_pravega(buffer.pts()),
-                            size: buffer.size() as u64,
-                            offset: buffer.offset(),
-                            offset_end: buffer.offset_end(),
-                            flags: buffer.flags(),
-                        };
+                        let buffer = sample.get_buffer().unwrap();
+                        let summary = BufferSummary::from(buffer);
                         let mut summary_list = summary_list_clone.lock().unwrap();
                         summary_list.push(summary);
                         Ok(gst::FlowSuccess::Ok)
