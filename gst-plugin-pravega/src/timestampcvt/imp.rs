@@ -15,43 +15,23 @@ use gst::subclass::prelude::*;
 use gst::{gst_debug, gst_error, gst_warning, gst_info, gst_log, gst_trace};
 use once_cell::sync::Lazy;
 use pravega_video::timestamp::PravegaTimestamp;
-use std::sync::Mutex;
 use crate::utils::pravega_to_clocktime;
 
+pub const ELEMENT_NAME: &str = "timestampcvt";
 const ELEMENT_CLASS_NAME: &str = "TimestampCvt";
 const ELEMENT_LONG_NAME: &str = "Convert timestamps";
 const ELEMENT_DESCRIPTION: &str = "\
-This element converts PTS and DTS timestamps on buffers.\
-Input buffer timestamps are nanoseconds \
+This element converts PTS and DTS timestamps for buffers.\
+Input buffer timestamps are assumed to be nanoseconds \
 since the NTP epoch 1900-01-01 00:00:00 UTC, not including leap seconds. \
 Use this for buffers from rtspsrc (ntp-sync=true ntp-time-source=running-time).
 Output buffer timestamps are nanoseconds \
 since 1970-01-01 00:00:00 TAI International Atomic Time, including leap seconds. \
-Use this for buffers to pravegasink (timestamp-mode=tai).";
+Use this for pipelines that will eventually write to pravegasink (timestamp-mode=tai).";
 const ELEMENT_AUTHOR: &str = "Claudio Fahey <claudio.fahey@dell.com>";
-const DEBUG_CATEGORY: &str = "timestampcvt";
-
-#[derive(Debug)]
-struct StartedState {
-}
-
-enum State {
-    Started {
-        state: StartedState,
-    }
-}
-
-impl Default for State {
-    fn default() -> State {
-        State::Started {
-            state: StartedState {
-            }
-        }
-    }
-}
+const DEBUG_CATEGORY: &str = ELEMENT_NAME;
 
 pub struct TimestampCvt {
-    state: Mutex<State>,
     srcpad: gst::Pad,
     sinkpad: gst::Pad,
 }
@@ -165,7 +145,6 @@ impl ObjectSubclass for TimestampCvt {
         .build();
 
         Self {
-            state: Mutex::new(Default::default()),
             srcpad,
             sinkpad,
         }

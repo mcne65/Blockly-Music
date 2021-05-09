@@ -18,6 +18,7 @@ use once_cell::sync::Lazy;
 use std::convert::TryInto;
 use std::sync::Mutex;
 
+pub const ELEMENT_NAME: &str = "fragmp4pay";
 const ELEMENT_CLASS_NAME: &str = "FragMp4Pay";
 const ELEMENT_LONG_NAME: &str = "Fragmented MP4 Payloader";
 const ELEMENT_DESCRIPTION: &str = "\
@@ -27,7 +28,7 @@ Each output buffer will contain exactly one moof and one mdat atom in their enti
 Additionally, output buffers containing key frames will be prefixed the ftype and moov atoms, \
 allowing playback to start from any key frame.";
 const ELEMENT_AUTHOR: &str = "Claudio Fahey <claudio.fahey@dell.com>";
-const DEBUG_CATEGORY: &str = "fragmp4pay";
+const DEBUG_CATEGORY: &str = ELEMENT_NAME;
 
 const ATOM_TYPE_FTYPE: u32 = 1718909296;
 const ATOM_TYPE_MOOV: u32 = 1836019574;
