@@ -20,6 +20,13 @@ use std::sync::Mutex;
 
 const ELEMENT_CLASS_NAME: &str = "FragMp4Pay";
 const ELEMENT_LONG_NAME: &str = "Fragmented MP4 Payloader";
+const ELEMENT_DESCRIPTION: &str = "\
+    This element accepts fragmented MP4 input from mp4mux and emits buffers\n
+    suitable for writing atomically. \
+    Each output buffer will contain exactly one moof and one mdat atom in their entirety.
+    Additionally, output buffers containing key frames will be prefixed the ftype and moov atoms, \
+    allowing playback to start from any key frame.";
+const ELEMENT_AUTHOR: &str = "Claudio Fahey <claudio.fahey@dell.com>";
 const DEBUG_CATEGORY: &str = "fragmp4pay";
 
 const ATOM_TYPE_FTYPE: u32 = 1718909296;
@@ -72,7 +79,7 @@ impl Mp4Parser {
             let atom_type = u32::from_be_bytes(self.buf[4..8].try_into().unwrap());
             if self.buf.len() >= atom_size {
                 let mut atom_bytes = Vec::with_capacity(atom_size);
-                // TODO: Look into swapping vectors.
+                // TODO: Swap vectors?
                 atom_bytes.extend_from_slice(&self.buf[0..atom_size]);
                 assert_eq!(self.buf.len(), atom_size);
                 self.buf.clear();
@@ -126,7 +133,7 @@ impl Default for State {
                 fragment_offset: None,
                 fragment_offset_end: None,
                 fragment_buffer_flags: gst::BufferFlags::DELTA_UNIT,
-                }
+            }
         }
     }
 }
@@ -152,7 +159,7 @@ impl FragMp4Pay {
         element: &super::FragMp4Pay,
         buffer: gst::Buffer,
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
-        gst_debug!(CAT, obj: pad, "Handling buffer {:?}", buffer);
+        gst_log!(CAT, obj: pad, "Handling buffer {:?}", buffer);
 
         let mut state = self.state.lock().unwrap();
 
@@ -174,7 +181,6 @@ impl FragMp4Pay {
         // Update cummulative fragment variables.
         // Buffer PTS, etc. are only valid if this buffer contains MDAT data.
         if state.mp4_parser.have_mdat() {
-            gst_debug!(CAT, obj: pad, "have_mdat");
             assert!(buffer.get_pts().is_some());
             if state.fragment_pts.is_none() {
                 state.fragment_pts = buffer.get_pts();
@@ -190,38 +196,42 @@ impl FragMp4Pay {
                 state.fragment_offset_end = Some(buffer.get_offset_end());
             }
             if state.fragment_buffer_flags.contains(gst::BufferFlags::DELTA_UNIT) && !buffer.get_flags().contains(gst::BufferFlags::DELTA_UNIT) {
-                gst_debug!(CAT, obj: pad, "Clearing DELTA_UNIT flag; buffer={:?}", buffer);
                 state.fragment_buffer_flags.remove(gst::BufferFlags::DELTA_UNIT);
             }
             if buffer.get_flags().contains(gst::BufferFlags::DISCONT) {
-                gst_debug!(CAT, obj: pad, "Setting DISCONT flag; buffer={:?}", buffer);
                 state.fragment_buffer_flags.insert(gst::BufferFlags::DISCONT);
             }
-            gst_debug!(CAT, obj: pad, "Updated state={:?}", state);
+            gst_trace!(CAT, obj: pad, "Updated state={:?}", state);
         }
 
         loop {
             match state.mp4_parser.pop_atom() {
                 Some(atom) => {
-                    gst_debug!(CAT, obj: pad, "atom_size={}, atom_type={}", atom.len(), atom.atom_type);
+                    gst_log!(CAT, obj: pad, "atom_size={}, atom_type={}", atom.len(), atom.atom_type);
                     match atom.atom_type {
                         ATOM_TYPE_FTYPE => {
                             state.ftype_atom = Some(atom);
-                            gst_debug!(CAT, obj: pad, "ftype_atom={:?}", state.ftype_atom);
+                            gst_log!(CAT, obj: pad, "ftype_atom={:?}", state.ftype_atom);
                         },
                         ATOM_TYPE_MOOV => {
                             state.moov_atom = Some(atom);
-                            gst_debug!(CAT, obj: pad, "moov_atom={:?}", state.moov_atom);
+                            gst_log!(CAT, obj: pad, "moov_atom={:?}", state.moov_atom);
                         },
                         ATOM_TYPE_MOOF => {
                             state.moof_atom = Some(atom);
-                            gst_debug!(CAT, obj: pad, "moof_atom={:?}", state.moof_atom);
+                            gst_log!(CAT, obj: pad, "moof_atom={:?}", state.moof_atom);
                         },
                         ATOM_TYPE_MDAT => {
                             let mdat_atom = atom;
                             match (state.ftype_atom.as_ref(), state.moov_atom.as_ref(), state.moof_atom.as_ref()) {
                                 (Some(ftype_atom), Some(moov_atom), Some(moof_atom)) => {
-                                    let output_buf_len = ftype_atom.len() + moov_atom.len() + moof_atom.len() + mdat_atom.len();
+                                    let include_header = !state.fragment_buffer_flags.contains(gst::BufferFlags::DELTA_UNIT);
+                                    let header_len = if include_header {
+                                        ftype_atom.len() + moov_atom.len()
+                                    } else {
+                                        0
+                                    };
+                                    let output_buf_len = header_len + moof_atom.len() + mdat_atom.len();
                                     let mut gst_buffer = gst::Buffer::with_size(output_buf_len).unwrap();
                                     {
                                         let buffer_ref = gst_buffer.get_mut().unwrap();
@@ -234,13 +244,17 @@ impl FragMp4Pay {
                                         let mut buffer_map = buffer_ref.map_writable().unwrap();
                                         let slice = buffer_map.as_mut_slice();
                                         let mut pos = 0;
-                                        slice[pos..pos+ftype_atom.len()].copy_from_slice(&ftype_atom.atom_bytes);
-                                        pos += ftype_atom.len();
-                                        slice[pos..pos+moov_atom.len()].copy_from_slice(&moov_atom.atom_bytes);
-                                        pos += moov_atom.len();
+                                        if include_header {
+                                            slice[pos..pos+ftype_atom.len()].copy_from_slice(&ftype_atom.atom_bytes);
+                                            pos += ftype_atom.len();
+                                            slice[pos..pos+moov_atom.len()].copy_from_slice(&moov_atom.atom_bytes);
+                                            pos += moov_atom.len();
+                                        }
                                         slice[pos..pos+moof_atom.len()].copy_from_slice(&moof_atom.atom_bytes);
                                         pos += moof_atom.len();
                                         slice[pos..pos+mdat_atom.len()].copy_from_slice(&mdat_atom.atom_bytes);
+                                        pos += mdat_atom.len();
+                                        assert_eq!(pos, output_buf_len);
                                     }
                                     // Clear fragment variables.
                                     state.fragment_pts = ClockTime::none();
@@ -250,7 +264,7 @@ impl FragMp4Pay {
                                     state.fragment_offset_end = None;
                                     state.fragment_buffer_flags = gst::BufferFlags::DELTA_UNIT;
                                     // Push new buffer.
-                                    gst_debug!(CAT, obj: pad, "Pushing buffer {:?}", gst_buffer);
+                                    gst_log!(CAT, obj: pad, "Pushing buffer {:?}", gst_buffer);
                                     let _ = self.srcpad.push(gst_buffer)?;
                                 },
                                 _ => {
@@ -266,38 +280,8 @@ impl FragMp4Pay {
                 None => break,
             }
         };
-        gst_debug!(CAT, obj: element, "sink_chain: END: state={:?}", state);
+        gst_trace!(CAT, obj: element, "sink_chain: END: state={:?}", state);
         Ok(gst::FlowSuccess::Ok)
-    }
-
-    fn sink_event(&self, pad: &gst::Pad, _element: &super::FragMp4Pay, event: gst::Event) -> bool {
-        gst_log!(CAT, obj: pad, "Handling event {:?}", event);
-        self.srcpad.push_event(event)
-    }
-
-    fn sink_query(
-        &self,
-        pad: &gst::Pad,
-        _element: &super::FragMp4Pay,
-        query: &mut gst::QueryRef,
-    ) -> bool {
-        gst_log!(CAT, obj: pad, "Handling query {:?}", query);
-        self.srcpad.peer_query(query)
-    }
-
-    fn src_event(&self, pad: &gst::Pad, _element: &super::FragMp4Pay, event: gst::Event) -> bool {
-        gst_log!(CAT, obj: pad, "Handling event {:?}", event);
-        self.sinkpad.push_event(event)
-    }
-
-    fn src_query(
-        &self,
-        pad: &gst::Pad,
-        _element: &super::FragMp4Pay,
-        query: &mut gst::QueryRef,
-    ) -> bool {
-        gst_log!(CAT, obj: pad, "Handling query {:?}", query);
-        self.sinkpad.peer_query(query)
     }
 }
 
@@ -317,38 +301,10 @@ impl ObjectSubclass for FragMp4Pay {
                     |identity, element| identity.sink_chain(pad, element, buffer),
                 )
             })
-            .event_function(|pad, parent, event| {
-                FragMp4Pay::catch_panic_pad_function(
-                    parent,
-                    || false,
-                    |identity, element| identity.sink_event(pad, element, event),
-                )
-            })
-            .query_function(|pad, parent, query| {
-                FragMp4Pay::catch_panic_pad_function(
-                    parent,
-                    || false,
-                    |identity, element| identity.sink_query(pad, element, query),
-                )
-            })
             .build();
 
         let templ = klass.get_pad_template("src").unwrap();
         let srcpad = gst::Pad::builder_with_template(&templ, Some("src"))
-            .event_function(|pad, parent, event| {
-                FragMp4Pay::catch_panic_pad_function(
-                    parent,
-                    || false,
-                    |identity, element| identity.src_event(pad, element, event),
-                )
-            })
-            .query_function(|pad, parent, query| {
-                FragMp4Pay::catch_panic_pad_function(
-                    parent,
-                    || false,
-                    |identity, element| identity.src_query(pad, element, query),
-                )
-            })
             .build();
 
         Self {
@@ -373,9 +329,8 @@ impl ElementImpl for FragMp4Pay {
             gst::subclass::ElementMetadata::new(
                 ELEMENT_LONG_NAME,
                 "Generic",
-                "TODO description\n
-                ",
-                "Claudio Fahey <claudio.fahey@dell.com>",
+                ELEMENT_DESCRIPTION,
+                ELEMENT_AUTHOR,
                 )
         });
         Some(&*ELEMENT_METADATA)
@@ -391,7 +346,6 @@ impl ElementImpl for FragMp4Pay {
                 &caps,
             )
             .unwrap();
-
             let sink_pad_template = gst::PadTemplate::new(
                 "sink",
                 gst::PadDirection::Sink,
@@ -399,19 +353,8 @@ impl ElementImpl for FragMp4Pay {
                 &caps,
             )
             .unwrap();
-
             vec![src_pad_template, sink_pad_template]
         });
-
         PAD_TEMPLATES.as_ref()
-    }
-
-    fn change_state(
-        &self,
-        element: &Self::Type,
-        transition: gst::StateChange,
-    ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        gst_debug!(CAT, obj: element, "Changing state {:?}", transition);
-        self.parent_change_state(element, transition)
     }
 }
