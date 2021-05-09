@@ -18,5 +18,12 @@ pushd ${ROOT_DIR}/integration-test
 export RUST_BACKTRACE=0
 # Multiple test threads should work but troubleshooting is easier with just 1 thread.
 TEST_THREADS=${TEST_THREADS:-1}
-cargo test $* -- --nocapture --test-threads=${TEST_THREADS} \
+
+# Build tests then print list of test names.
+# This will ignore any tests with names containing "ignore".
+cargo test $* -- --skip ignore --list \
 |& tee /tmp/integration-test.log
+
+# Run tests.
+cargo test $* -- --skip ignore --nocapture --test-threads=${TEST_THREADS} \
+|& tee -a /tmp/integration-test.log
