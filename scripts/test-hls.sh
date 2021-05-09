@@ -12,15 +12,8 @@
 
 set -ex
 ROOT_DIR=$(readlink -f $(dirname $0)/..)
-export GST_DEBUG=identity:LOG
-SIZE_SEC=5
-FPS=30
-
-gst-launch-1.0 \
--v \
-videotestsrc pattern=blue num-buffers=$(($SIZE_SEC*$FPS)) \
-! "video/x-raw,width=320,height=240,framerate=30/1" \
-! videoconvert \
-! x264enc \
-! mp4mux fragment-duration=1000 \
-! filesink location=${ROOT_DIR}/pravega-video-server/static/gap-${SIZE_SEC}s.mp4
+# If PRAVEGA_CONTROLLER_URI is not set, then Pravega standalone will be started and stopped by the integration test.
+#export PRAVEGA_CONTROLLER_URI=127.0.0.1:9090
+pushd ${ROOT_DIR}/integration-test
+export RUST_BACKTRACE=0
+cargo test hls_rtsp -- --ignored --nocapture --test-threads=1

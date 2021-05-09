@@ -24,10 +24,10 @@ mod test {
     /// When executed, it will pause when it expects the user to open a browser to a URL and validate playback.
     /// To run this test:
     ///   1. scripts/pravega-video-server.sh
-    ///   1. cd integration-test ; cargo test hls_rtsp -- --ignored --nocapture --test-threads=1
+    ///   1. scripts/test-hls.sh
     #[ignore]
     #[rstest]
-    // #[case(ContainerFormat::MpegTs)]
+    #[case(ContainerFormat::MpegTs)]
     #[case(ContainerFormat::Mp4)]
     fn test_hls_rtsp(#[case] container_format: ContainerFormat) {
         gst_init();
@@ -86,7 +86,6 @@ mod test {
             ! pravegasink {pravega_plugin_properties} \
               sync=false \
               timestamp-mode=ntp \
-              index-min-sec=5.5 \
             ",
            pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
            rtsp_url = rtsp_url,

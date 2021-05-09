@@ -13,6 +13,7 @@
 *.crt
 *.engine
 *.log
+*.mp4
 *.ts
 !/pravega-video-server/static/gap-*.ts
 __pycache__/
