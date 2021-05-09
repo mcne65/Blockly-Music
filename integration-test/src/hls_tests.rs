@@ -81,10 +81,11 @@ mod test {
             ! h264parse \
             ! video/x-h264,alignment=au \
             ! identity silent=true eos-after={num_frames} \
+            ! timestampcvt \
             {container_pipeline} \
             ! pravegasink {pravega_plugin_properties} \
               sync=false \
-              timestamp-mode=ntp \
+              timestamp-mode=tai \
             ",
            pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
            rtsp_url = rtsp_url,
