@@ -25,11 +25,10 @@ mod test {
     /// To run this test:
     ///   1. scripts/pravega-video-server.sh
     ///   1. scripts/test-hls.sh
-    #[ignore]
     #[rstest]
     #[case(ContainerFormat::MpegTs)]
     #[case(ContainerFormat::Mp4)]
-    fn test_hls_rtsp(#[case] container_format: ContainerFormat) {
+    fn test_hls_rtsp_ignore(#[case] container_format: ContainerFormat) {
         gst_init();
         let test_config = &get_test_config();
         info!("test_config={:?}", test_config);
