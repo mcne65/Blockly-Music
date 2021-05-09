@@ -21,7 +21,13 @@ use crate::utils::pravega_to_clocktime;
 const ELEMENT_CLASS_NAME: &str = "TimestampCvt";
 const ELEMENT_LONG_NAME: &str = "Convert timestamps";
 const ELEMENT_DESCRIPTION: &str = "\
-Convert timestamps";
+This element converts PTS and DTS timestamps on buffers.\
+Input buffer timestamps are nanoseconds \
+since the NTP epoch 1900-01-01 00:00:00 UTC, not including leap seconds. \
+Use this for buffers from rtspsrc (ntp-sync=true ntp-time-source=running-time).
+Output buffer timestamps are nanoseconds \
+since 1970-01-01 00:00:00 TAI International Atomic Time, including leap seconds. \
+Use this for buffers to pravegasink (timestamp-mode=tai).";
 const ELEMENT_AUTHOR: &str = "Claudio Fahey <claudio.fahey@dell.com>";
 const DEBUG_CATEGORY: &str = "timestampcvt";
 
@@ -67,13 +73,18 @@ impl TimestampCvt {
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
 
         let input_pts = buffer.get_pts();
+        let input_dts = buffer.get_dts();
         if input_pts.is_some() {
-            let timestamp = PravegaTimestamp::from_ntp_nanoseconds(input_pts.nseconds());
-            if timestamp.is_some() {
-                let new_pts = pravega_to_clocktime(timestamp);
+            let new_pravega_pts = PravegaTimestamp::from_ntp_nanoseconds(input_pts.nseconds());
+            if new_pravega_pts.is_some() {
+                let new_pts = pravega_to_clocktime(new_pravega_pts);
+                let new_pravega_dts = PravegaTimestamp::from_ntp_nanoseconds(input_dts.nseconds());
+                let new_dts = pravega_to_clocktime(new_pravega_dts);
                 let buffer_ref = buffer.make_mut();
-                gst_log!(CAT, obj: pad, "Input PTS {}, Output PTS {}, Timestamp {:?}", input_pts, new_pts, timestamp);
+                gst_log!(CAT, obj: pad, "Input PTS {}, Output PTS {}, Timestamp {:?}", input_pts, new_pts, new_pravega_pts);
+                gst_log!(CAT, obj: pad, "Input DTS {}, Output DTS {}, Timestamp {:?}", input_dts, new_dts, new_pravega_dts);
                 buffer_ref.set_pts(new_pts);
+                buffer_ref.set_dts(new_dts);
                 self.srcpad.push(buffer)
             } else {
                 gst_warning!(CAT, obj: pad, "Dropping buffer because PTS {} is out of range {:?} to {:?}",
