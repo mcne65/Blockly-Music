@@ -47,7 +47,7 @@ mod test {
             .fps(fps)
             .build().unwrap();
         let (rtsp_url, _rtsp_server) = start_or_get_rtsp_test_source(rtsp_server_config);
-        let num_sec_to_record = 10;
+        let num_sec_to_record = 20;
         // The identity element will stop the pipeline after this many video frames.
         let num_frames_to_record = num_sec_to_record * fps;
         let num_sec_expected_min = 3;
@@ -71,10 +71,12 @@ mod test {
             ! h264parse \
             ! video/x-h264,alignment=au \
             ! identity silent=false eos-after={num_frames} \
+            ! timestampcvt \
+            ! identity name=taits silent=false \
             {container_pipeline} \
             ! pravegasink {pravega_plugin_properties} \
               sync=false \
-              timestamp-mode=ntp \
+              timestamp-mode=tai \
             ",
            pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
            rtsp_url = rtsp_url,
@@ -86,7 +88,7 @@ mod test {
         info!("#### Read recorded stream from Pravega without decoding, part 1");
         let pipeline_description = format!(
             "pravegasrc {pravega_plugin_properties} \
-              start-mode=no-seek \
+              start-mode=earliest \
               end-mode=latest \
             ! appsink name=sink sync=false",
             pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
@@ -97,7 +99,7 @@ mod test {
         let last_pts_read = summary_read.last_valid_pts();
         assert!(first_pts_read.is_some(), "Pipeline is not recording timestamps");
         assert_timestamp_approx_eq("first_pts_read", first_pts_read, expected_timestamp, expected_timestamp_margin, expected_timestamp_margin);
-        assert_timestamp_approx_eq("first_pts_read", last_pts_read, expected_timestamp, expected_timestamp_margin, expected_timestamp_margin);
+        assert_timestamp_approx_eq("last_pts_read", last_pts_read, expected_timestamp, expected_timestamp_margin, expected_timestamp_margin);
         assert!(summary_read.pts_range() >= num_sec_expected_min * SECOND);
         assert!(summary_read.pts_range() <= (2 * num_sec_to_record + 60) * SECOND);
 
