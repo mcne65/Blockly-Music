@@ -21,11 +21,11 @@ use std::sync::Mutex;
 const ELEMENT_CLASS_NAME: &str = "FragMp4Pay";
 const ELEMENT_LONG_NAME: &str = "Fragmented MP4 Payloader";
 const ELEMENT_DESCRIPTION: &str = "\
-    This element accepts fragmented MP4 input from mp4mux and emits buffers\n
-    suitable for writing atomically. \
-    Each output buffer will contain exactly one moof and one mdat atom in their entirety.
-    Additionally, output buffers containing key frames will be prefixed the ftype and moov atoms, \
-    allowing playback to start from any key frame.";
+This element accepts fragmented MP4 input from mp4mux and emits buffers \
+suitable for writing atomically. \
+Each output buffer will contain exactly one moof and one mdat atom in their entirety.
+Additionally, output buffers containing key frames will be prefixed the ftype and moov atoms, \
+allowing playback to start from any key frame.";
 const ELEMENT_AUTHOR: &str = "Claudio Fahey <claudio.fahey@dell.com>";
 const DEBUG_CATEGORY: &str = "fragmp4pay";
 
@@ -283,6 +283,22 @@ impl FragMp4Pay {
         gst_trace!(CAT, obj: element, "sink_chain: END: state={:?}", state);
         Ok(gst::FlowSuccess::Ok)
     }
+
+    fn sink_event(&self, _pad: &gst::Pad, _element: &super::FragMp4Pay, event: gst::Event) -> bool {
+        self.srcpad.push_event(event)
+    }
+
+    fn sink_query(&self, _pad: &gst::Pad, _element: &super::FragMp4Pay, query: &mut gst::QueryRef) -> bool {
+        self.srcpad.peer_query(query)
+    }
+
+    fn src_event(&self, _pad: &gst::Pad, _element: &super::FragMp4Pay, event: gst::Event) -> bool {
+        self.sinkpad.push_event(event)
+    }
+
+    fn src_query(&self, _pad: &gst::Pad, _element: &super::FragMp4Pay, query: &mut gst::QueryRef) -> bool {
+        self.sinkpad.peer_query(query)
+    }
 }
 
 #[glib::object_subclass]
@@ -301,10 +317,38 @@ impl ObjectSubclass for FragMp4Pay {
                     |identity, element| identity.sink_chain(pad, element, buffer),
                 )
             })
+            .event_function(|pad, parent, event| {
+                FragMp4Pay::catch_panic_pad_function(
+                    parent,
+                    || false,
+                    |identity, element| identity.sink_event(pad, element, event),
+                )
+            })
+            .query_function(|pad, parent, query| {
+                FragMp4Pay::catch_panic_pad_function(
+                    parent,
+                    || false,
+                    |identity, element| identity.sink_query(pad, element, query),
+                )
+            })
             .build();
 
         let templ = klass.get_pad_template("src").unwrap();
         let srcpad = gst::Pad::builder_with_template(&templ, Some("src"))
+            .event_function(|pad, parent, event| {
+                FragMp4Pay::catch_panic_pad_function(
+                    parent,
+                    || false,
+                    |identity, element| identity.src_event(pad, element, event),
+                )
+            })
+            .query_function(|pad, parent, query| {
+                FragMp4Pay::catch_panic_pad_function(
+                    parent,
+                    || false,
+                    |identity, element| identity.src_query(pad, element, query),
+                )
+            })
             .build();
 
         Self {
