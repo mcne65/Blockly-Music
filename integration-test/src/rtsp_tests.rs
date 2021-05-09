@@ -20,7 +20,7 @@ mod test {
     use crate::utils::*;
 
     #[rstest]
-    // #[case(ContainerFormat::MpegTs)]
+    #[case(ContainerFormat::MpegTs)]
     #[case(ContainerFormat::Mp4)]
     fn test_rtsp(#[case] container_format: ContainerFormat) {
         gst_init();
@@ -106,7 +106,9 @@ mod test {
             "pravegasrc {pravega_plugin_properties} \
               start-mode=earliest \
               end-mode=latest \
-              ! decodebin \
+            ! identity name=fromsource silent=false \
+            ! decodebin \
+            ! identity name=decoded silent=false \
             ! appsink name=sink sync=false",
             pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
         );

@@ -303,7 +303,9 @@ mod models {
             tracing::trace!("spawn_blocking done");
             let stream = futures_util::stream::iter(chunks);
             let body = Body::wrap_stream(stream);
-            Ok(warp::reply::with_header(warp::reply::Response::new(body), "content-type", "video/MP2T"))
+            // let content_type = "video/MP2T";
+            let content_type = "video/mp4";
+            Ok(warp::reply::with_header(warp::reply::Response::new(body), "content-type", content_type))
         }
 
         pub async fn get_m3u8_playlist(
@@ -439,7 +441,7 @@ mod models {
                             let gap_content_duration_seconds = 5;
                             playlist_body.push_str("#EXT-X-DISCONTINUITY\n");
                             playlist_body.push_str(&format!("#EXTINF:{},\n", gap_content_duration_seconds));
-                            playlist_body.push_str(&format!("/static/gap-{}s.ts\n", gap_content_duration_seconds));
+                            playlist_body.push_str(&format!("/static/gap-{}s.mp4\n", gap_content_duration_seconds));
                             next_segment_discont = true;
                         }
                     }
