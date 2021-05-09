@@ -16,4 +16,4 @@ ROOT_DIR=$(readlink -f $(dirname $0)/..)
 #export PRAVEGA_CONTROLLER_URI=127.0.0.1:9090
 pushd ${ROOT_DIR}/integration-test
 export RUST_BACKTRACE=0
-cargo test hls_rtsp -- --ignored --nocapture --test-threads=1
+cargo test hls_rtsp -- --nocapture --test-threads=1
