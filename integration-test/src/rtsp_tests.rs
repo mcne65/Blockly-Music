@@ -20,8 +20,8 @@ mod test {
     use crate::utils::*;
 
     #[rstest]
-    #[case(ContainerFormat::MpegTs)]
     #[case(ContainerFormat::Mp4)]
+    #[case(ContainerFormat::MpegTs)]
     fn test_rtsp(#[case] container_format: ContainerFormat) {
         gst_init();
         let test_config = &get_test_config();

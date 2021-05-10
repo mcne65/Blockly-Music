@@ -26,8 +26,8 @@ mod test {
     ///   1. scripts/pravega-video-server.sh
     ///   1. scripts/test-hls.sh
     #[rstest]
-    #[case(ContainerFormat::MpegTs)]
     #[case(ContainerFormat::Mp4)]
+    #[case(ContainerFormat::MpegTs)]
     fn test_hls_rtsp_ignore(#[case] container_format: ContainerFormat) {
         gst_init();
         let test_config = &get_test_config();

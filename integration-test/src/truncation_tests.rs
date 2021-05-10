@@ -94,8 +94,8 @@ mod test {
     }
 
     #[rstest]
-    #[case(ContainerFormat::MpegTs)]
     #[case(ContainerFormat::Mp4)]
+    #[case(ContainerFormat::MpegTs)]
     fn test_compressed_video(#[case] container_format: ContainerFormat) {
         let test_config = get_test_config();
         info!("test_config={:?}", test_config);
