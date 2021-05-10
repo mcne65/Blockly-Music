@@ -8,6 +8,8 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 //
 
+#![allow(dead_code)]
+
 mod hls_tests;
 mod pravegasrc_seek_tests;
 mod pravegasrc_tests;
@@ -39,13 +41,6 @@ pub const DEFAULT_GST_DEBUG: &str = "pravegasrc:DEBUG,pravegasink:DEBUG,fragmp4p
 /// Default logging configuration for for Rust tracing (includes this integration test and the Pravega client).
 /// Valid levels are: error, warn, info, debug, trace
 pub const DEFAULT_GST_PRAVEGA_INTEGRATION_TEST_LOG: &str = "gstreamer_pravega_integration_test=debug,pravega_video=debug,warn";
-
-pub enum ContainerFormat {
-    // MPEG transport stream
-    MpegTs,
-    // Fragmented MP4, MPEG-4 Part 14, QuickTime, ISO/IEC 14496-14:2003, ISO Base Media File Format
-    Mp4,
-}
 
 #[derive(Clone, Debug)]
 pub struct TestConfig {

@@ -13,7 +13,7 @@ mod test {
     use anyhow::Error;
     use gst::prelude::*;
     use gstpravega::utils::{clocktime_to_pravega, pravega_to_clocktime};
-    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, MSECOND, SECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, MSECOND, SECOND};
     use rstest::rstest;
     use std::convert::TryFrom;
     use std::sync::Arc;
@@ -24,37 +24,24 @@ mod test {
     use crate::*;
     use crate::utils::*;
 
-    fn pravegasrc_seek_test_data_gen(test_config: &TestConfig, stream_name: &str, container_format: ContainerFormat) -> Result<BufferListSummary, Error> {
+    fn pravegasrc_seek_test_data_gen(test_config: &TestConfig, stream_name: &str, video_encoder: VideoEncoder, container_format: ContainerFormat) -> Result<BufferListSummary, Error> {
         gst_init();
         // first_timestamp: 2001-02-03T04:00:00.000000000Z (981172837000000000 ns, 272548:00:37.000000000)
         let first_utc = "2001-02-03T04:00:00.000Z".to_owned();
         let first_timestamp = PravegaTimestamp::try_from(Some(first_utc)).unwrap();
         info!("first_timestamp={:?}", first_timestamp);
         let fps = 30;
-        let key_int_max = 30;
         let length_sec = 60;
         let num_buffers_written = length_sec * fps;
-
-        let container_pipeline = match container_format {
-            ContainerFormat::MpegTs => {
-                format!("! mpegtsmux")
-            },
-            ContainerFormat::Mp4 => {
-                let fragment_duration: TimeDelta = 100 * MSECOND;
-                format!("\
-                    ! mp4mux streamable=true fragment-duration={fragment_duration} \
-                    ! identity name=mp4mux_ silent=false \
-                    ! fragmp4pay",
-                fragment_duration = fragment_duration.milliseconds().unwrap())
-            },
-        };
+        let video_encoder_pipeline = video_encoder.pipeline();
+        let container_pipeline = container_format.pipeline();
 
         info!("#### Write video stream to Pravega");
         let pipeline_description = format!(
             "videotestsrc name=src timestamp-offset={timestamp_offset} num-buffers={num_buffers} \
             ! video/x-raw,width=320,height=180,framerate={fps}/1 \
             ! videoconvert \
-            ! x264enc key-int-max={key_int_max} bitrate=100 \
+            {video_encoder_pipeline} \
             {container_pipeline} \
             ! tee name=t \
             t. ! queue ! appsink name=sink sync=false \
@@ -64,7 +51,7 @@ mod test {
             timestamp_offset = first_timestamp.nanoseconds().unwrap(),
             num_buffers = num_buffers_written,
             fps = fps,
-            key_int_max = key_int_max,
+            video_encoder_pipeline = video_encoder_pipeline,
             container_pipeline = container_pipeline,
         );
         let summary = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
@@ -76,13 +63,23 @@ mod test {
     /// This starts playback from the beginning, with sync=true, then skips over several seconds.
     /// Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/tutorials/src/bin/basic-tutorial-4.rs
     #[rstest]
-    #[case(ContainerFormat::Mp4)]
-    #[case(ContainerFormat::MpegTs)]
-    fn test_pravegasrc_seek_player(#[case] container_format: ContainerFormat) {
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(100 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        ContainerFormat::MpegTs,
+    )]
+    fn test_pravegasrc_seek_player(#[case] video_encoder: VideoEncoder, #[case] container_format: ContainerFormat) {
         let test_config = &get_test_config();
         info!("test_config={:?}", test_config);
         let stream_name = &format!("test-pravegasrc-{}-{}", test_config.test_id, Uuid::new_v4())[..];
-        let summary_written = pravegasrc_seek_test_data_gen(test_config, stream_name, container_format).unwrap();
+        let summary_written = pravegasrc_seek_test_data_gen(test_config, stream_name, video_encoder, container_format).unwrap();
         debug!("summary_written={}", summary_written);
         let first_pts_written = summary_written.first_valid_pts();
         let last_pts_written = summary_written.last_valid_pts();

@@ -10,7 +10,7 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, SECOND, MSECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, SECOND, MSECOND};
     use rstest::rstest;
     use std::convert::TryFrom;
     #[allow(unused_imports)]
@@ -94,35 +94,30 @@ mod test {
     }
 
     #[rstest]
-    #[case(ContainerFormat::Mp4)]
-    #[case(ContainerFormat::MpegTs)]
-    fn test_compressed_video(#[case] container_format: ContainerFormat) {
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(100 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        ContainerFormat::MpegTs,
+    )]
+    fn test_compressed_video(#[case] video_encoder: VideoEncoder, #[case] container_format: ContainerFormat) {
         let test_config = get_test_config();
         info!("test_config={:?}", test_config);
         gst_init();
         let stream_name = &format!("test-compressed-video-{}-{}", test_config.test_id, Uuid::new_v4())[..];
 
-        let (container_pipeline, fragment_duration, pts_margin, random_start_pts_margin) = match container_format {
-            ContainerFormat::MpegTs => {
-                // MPEG TS requires large margins to pass tests.
-                (format!("! mpegtsmux"),
-                 10 * MSECOND,
-                 126 * MSECOND,
-                 1000 * MSECOND,
-                )
-            },
-            ContainerFormat::Mp4 => {
-                let fragment_duration: TimeDelta = 100 * MSECOND;
-                (format!("\
-                    ! mp4mux streamable=true fragment-duration={fragment_duration} \
-                    ! identity name=mp4mux_ silent=false \
-                    ! fragmp4pay",
-                fragment_duration = fragment_duration.milliseconds().unwrap()),
-                fragment_duration,
-                 0 * MSECOND,
-                 0 * MSECOND,
-                )
-            },
+        let video_encoder_pipeline = video_encoder.pipeline();
+        let container_pipeline = container_format.pipeline();
+        let (pts_margin, random_start_pts_margin) = match container_format {
+            // MPEG TS requires large margins to pass tests.
+            ContainerFormat::MpegTs => (126 * MSECOND, 1000 * MSECOND),
+            ContainerFormat::Mp4(_) => (0 * MSECOND, 0 * MSECOND),
         };
 
         // first_timestamp: 2001-02-03T04:00:00.000000000Z (981172837000000000 ns, 272548:00:37.000000000)
@@ -132,6 +127,10 @@ mod test {
         let fps = 30;
         let length_sec = 10;
         let num_buffers_written = length_sec * fps;
+        let key_int_max_frames = match video_encoder {
+            VideoEncoder::H264(config) => config.key_int_max_frames,
+        };
+        let key_int_max_time_delta = key_int_max_frames * SECOND / fps;
         let last_pts_written = first_pts_written + (num_buffers_written - 1) * SECOND / fps;
         info!("last_pts_written={}", last_pts_written);
 
@@ -142,10 +141,9 @@ mod test {
             ! videoconvert \
             ! timeoverlay valignment=bottom font-desc=\"Sans 48px\" shaded-background=true \
             ! videoconvert \
-            ! x264enc key-int-max=30 bitrate=100 tune=zerolatency \
+            {video_encoder_pipeline} \
             ! identity name=h264___ silent=false \
             {container_pipeline} \
-            ! identity name=fragmp4 silent=false \
             ! tee name=t \
             t. ! queue ! appsink name=sink sync=false \
             t. ! pravegasink {pravega_plugin_properties} \
@@ -154,6 +152,7 @@ mod test {
             timestamp_offset = first_pts_written.nanoseconds().unwrap(),
             num_buffers = num_buffers_written,
             fps = fps,
+            video_encoder_pipeline = video_encoder_pipeline,
             container_pipeline = container_pipeline,
         );
         let summary_written = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
@@ -210,7 +209,7 @@ mod test {
         let first_pts_actual = summary_trun_read.first_pts();
         let last_pts_actual = summary_trun_read.last_pts();
         let first_pts_expected = truncate_before_pts;
-        let last_pts_expected_min = last_pts_written - fragment_duration;
+        let last_pts_expected_min = last_pts_written - key_int_max_time_delta;
         assert_timestamp_approx_eq("first_pts_actual", first_pts_actual, first_pts_expected, pts_margin, pts_margin);
         assert_between_timestamp("last_pts_actual", last_pts_actual, last_pts_expected_min - pts_margin, last_pts_written + pts_margin);
 
