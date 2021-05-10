@@ -76,8 +76,8 @@ mod test {
     /// This starts playback from the beginning, with sync=true, then skips over several seconds.
     /// Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/tutorials/src/bin/basic-tutorial-4.rs
     #[rstest]
-    #[case(ContainerFormat::MpegTs)]
     #[case(ContainerFormat::Mp4)]
+    #[case(ContainerFormat::MpegTs)]
     fn test_pravegasrc_seek_player(#[case] container_format: ContainerFormat) {
         let test_config = &get_test_config();
         info!("test_config={:?}", test_config);
