@@ -105,11 +105,16 @@ struct StartedState {
     moov_atom: Option<Mp4Atom>,
     // These atoms that must be buffered and pushed as a single buffer.
     moof_atom: Option<Mp4Atom>,
-    // Members that track the current fragment (moof, mdat).
+    // Below members that track current fragment (moof, mdat).
+    /// Minimum PTS in fragment.
     fragment_pts: ClockTime,
+    /// Minimum DTS in fragment.
     fragment_dts: ClockTime,
-    fragment_duration: ClockTime,
+    /// Maximum PTS + duration in fragment.
+    fragment_max_pts_plus_duration: ClockTime,
+    /// Minimum offset in fragment.
     fragment_offset: Option<u64>,
+    /// Maximum offset_end in fragment.
     fragment_offset_end: Option<u64>,
     fragment_buffer_flags: gst::BufferFlags,
 }
@@ -130,7 +135,7 @@ impl Default for State {
                 moof_atom: None,
                 fragment_pts: ClockTime::none(),
                 fragment_dts: ClockTime::none(),
-                fragment_duration: ClockTime::zero(),
+                fragment_max_pts_plus_duration: ClockTime::none(),
                 fragment_offset: None,
                 fragment_offset_end: None,
                 fragment_buffer_flags: gst::BufferFlags::DELTA_UNIT,
@@ -183,17 +188,20 @@ impl FragMp4Pay {
         // Buffer PTS, etc. are only valid if this buffer contains MDAT data.
         if state.mp4_parser.have_mdat() {
             assert!(buffer.get_pts().is_some());
-            if state.fragment_pts.is_none() {
+            if state.fragment_pts.is_none() || state.fragment_pts > buffer.get_pts() {
                 state.fragment_pts = buffer.get_pts();
             }
-            if state.fragment_dts.is_none() {
+            if state.fragment_dts.is_none() || state.fragment_dts > buffer.get_dts() {
                 state.fragment_dts = buffer.get_dts();
             }
-            state.fragment_duration += ClockTime(Some(buffer.get_duration().unwrap_or_default()));
-            if state.fragment_offset.is_none() && buffer.get_offset() != gst::BUFFER_OFFSET_NONE {
+            let pts_plus_duration = buffer.get_pts() + buffer.get_duration();
+            if state.fragment_max_pts_plus_duration.is_none() || state.fragment_max_pts_plus_duration < pts_plus_duration {
+                state.fragment_max_pts_plus_duration = pts_plus_duration;
+            }
+            if buffer.get_offset() != gst::BUFFER_OFFSET_NONE && (state.fragment_offset.is_none() || state.fragment_offset.unwrap() > buffer.get_offset()) {
                 state.fragment_offset = Some(buffer.get_offset());
             }
-            if buffer.get_offset_end() != gst::BUFFER_OFFSET_NONE {
+            if buffer.get_offset_end() != gst::BUFFER_OFFSET_NONE && (state.fragment_offset_end.is_none() || state.fragment_offset_end.unwrap() < buffer.get_offset_end()) {
                 state.fragment_offset_end = Some(buffer.get_offset_end());
             }
             if state.fragment_buffer_flags.contains(gst::BufferFlags::DELTA_UNIT) && !buffer.get_flags().contains(gst::BufferFlags::DELTA_UNIT) {
@@ -238,7 +246,8 @@ impl FragMp4Pay {
                                         let buffer_ref = gst_buffer.get_mut().unwrap();
                                         buffer_ref.set_pts(state.fragment_pts);
                                         buffer_ref.set_dts(state.fragment_dts);
-                                        buffer_ref.set_duration(state.fragment_duration);
+                                        let duration = state.fragment_max_pts_plus_duration - state.fragment_pts;
+                                        buffer_ref.set_duration(duration);
                                         buffer_ref.set_offset(state.fragment_offset.unwrap_or(gst::BUFFER_OFFSET_NONE));
                                         buffer_ref.set_offset_end(state.fragment_offset_end.unwrap_or(gst::BUFFER_OFFSET_NONE));
                                         buffer_ref.set_flags(state.fragment_buffer_flags);
@@ -260,7 +269,7 @@ impl FragMp4Pay {
                                     // Clear fragment variables.
                                     state.fragment_pts = ClockTime::none();
                                     state.fragment_dts = ClockTime::none();
-                                    state.fragment_duration = ClockTime::zero();
+                                    state.fragment_max_pts_plus_duration = ClockTime::none();
                                     state.fragment_offset = None;
                                     state.fragment_offset_end = None;
                                     state.fragment_buffer_flags = gst::BufferFlags::DELTA_UNIT;
