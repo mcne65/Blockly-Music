@@ -10,7 +10,7 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, MSECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, MSECOND};
     use rstest::rstest;
     #[allow(unused_imports)]
     use tracing::{error, info, debug};
@@ -26,7 +26,8 @@ mod test {
     ///   1. scripts/pravega-video-server.sh
     ///   1. scripts/test-hls.sh
     #[rstest]
-    #[case(ContainerFormat::Mp4)]
+    #[case(ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()))]
+    #[case(ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(100 * MSECOND).build().unwrap()))]
     #[case(ContainerFormat::MpegTs)]
     fn test_hls_rtsp_ignore(#[case] container_format: ContainerFormat) {
         gst_init();
@@ -34,19 +35,7 @@ mod test {
         info!("test_config={:?}", test_config);
         let stream_name = &format!("test-hls-{}-{}", test_config.test_id, Uuid::new_v4())[..];
 
-        let container_pipeline = match container_format {
-            ContainerFormat::MpegTs => {
-                format!("! mpegtsmux")
-            },
-            ContainerFormat::Mp4 => {
-                let fragment_duration: TimeDelta = 100 * MSECOND;
-                format!("\
-                    ! mp4mux streamable=true fragment-duration={fragment_duration} \
-                    ! identity name=mp4mux_ silent=false \
-                    ! fragmp4pay",
-                fragment_duration = fragment_duration.milliseconds().unwrap())
-            },
-        };
+        let container_pipeline = container_format.pipeline();
 
         let player_url = format!("http://localhost:3030/player?scope={scope}&stream={stream_name}",
             scope = test_config.scope, stream_name = stream_name);

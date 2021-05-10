@@ -11,6 +11,7 @@
 #![allow(dead_code)]
 
 use anyhow::{anyhow, Error};
+use derive_builder::*;
 use gst::{BufferFlags, ClockTime};
 use gst::prelude::*;
 use gstpravega::utils::clocktime_to_pravega;
@@ -391,4 +392,70 @@ pub fn truncate_stream(client_config: ClientConfig, scope_name: String, stream_n
     info!("Index truncated at offset {}", index_record.1);
     runtime.block_on(writer.truncate_data_before(index_record.0.offset as i64)).unwrap();
     info!("Data truncated at offset {}", index_record.0.offset);
+}
+
+#[derive(Builder)]
+pub struct H264EncoderConfig {
+    #[builder(default = "250.0")]
+    pub bitrate_kilobytes_per_sec: f64,
+    #[builder(default = "0")]
+    pub key_int_max_frames: u32,
+    #[builder(default = "\"/0\".to_owned()")]
+    pub tune: String,
+}
+
+impl H264EncoderConfig {
+    pub fn pipeline(&self) -> String {
+        format!("! x264enc bitrate={bitrate_kilobits_per_sec} key-int-max={key_int_max_frames} tune={tune}",
+            bitrate_kilobits_per_sec = (self.bitrate_kilobytes_per_sec * 8.0) as u32,
+            key_int_max_frames = self.key_int_max_frames,
+            tune = self.tune,
+        )
+    }
+}
+
+pub enum VideoEncoder {
+    H264(H264EncoderConfig),
+}
+
+impl VideoEncoder {
+    pub fn pipeline(&self) -> String {
+        match self {
+            VideoEncoder::H264(config) => config.pipeline(),
+        }
+    }
+}
+
+#[derive(Builder)]
+pub struct Mp4MuxConfig {
+    #[builder(default = "100 * pravega_video::timestamp::MSECOND")]
+    fragment_duration: TimeDelta,
+}
+
+impl Mp4MuxConfig {
+    pub fn pipeline(&self) -> String {
+        format!("\
+            ! mp4mux streamable=true fragment-duration={fragment_duration} \
+            ! identity name=mp4mux_ silent=false \
+            ! fragmp4pay \
+            ! identity name=fragmp4 silent=false \
+            ",
+            fragment_duration = self.fragment_duration.milliseconds().unwrap())
+    }
+}
+
+pub enum ContainerFormat {
+    // MPEG transport stream
+    MpegTs,
+    // Fragmented MP4, MPEG-4 Part 14, QuickTime, ISO/IEC 14496-14:2003, ISO Base Media File Format
+    Mp4(Mp4MuxConfig),
+}
+
+impl ContainerFormat {
+    pub fn pipeline(&self) -> String {
+        match self {
+            ContainerFormat::Mp4(config) => config.pipeline(),
+            ContainerFormat::MpegTs => format!("! mpegtsmux"),
+        }
+    }
 }

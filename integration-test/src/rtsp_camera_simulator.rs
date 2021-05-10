@@ -46,17 +46,17 @@ pub fn start_or_get_rtsp_test_source(config: RTSPCameraSimulatorConfig) -> (Stri
 #[derive(Builder)]
 pub struct RTSPCameraSimulatorConfig {
     #[builder(default = "640")]
-    width: u64,
+    pub width: u64,
     #[builder(default = "480")]
-    height: u64,
+    pub height: u64,
     #[builder(default = "20")]
-    fps: u64,
+    pub fps: u64,
     #[builder(default = "30")]
-    key_frame_interval_max: u64,
+    pub key_frame_interval_max: u64,
     #[builder(default = "10.0")]
-    target_rate_kilobytes_per_sec: f64,
+    pub target_rate_kilobytes_per_sec: f64,
     #[builder(default = "\"/cam/realmonitor\".to_owned()")]
-    path: String,
+    pub path: String,
 }
 
 pub struct RTSPCameraSimulator {

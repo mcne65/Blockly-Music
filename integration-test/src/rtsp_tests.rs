@@ -10,42 +10,37 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, HOUR, MSECOND, SECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, HOUR, MSECOND, SECOND};
     use rstest::rstest;
     #[allow(unused_imports)]
     use tracing::{error, info, debug};
     use uuid::Uuid;
     use crate::*;
-    use crate::rtsp_camera_simulator::{start_or_get_rtsp_test_source, RTSPCameraSimulatorConfigBuilder};
+    use crate::rtsp_camera_simulator::{start_or_get_rtsp_test_source, RTSPCameraSimulatorConfig, RTSPCameraSimulatorConfigBuilder};
     use crate::utils::*;
 
     #[rstest]
-    #[case(ContainerFormat::Mp4)]
-    #[case(ContainerFormat::MpegTs)]
-    fn test_rtsp(#[case] container_format: ContainerFormat) {
+    #[case(
+        RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(100 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
+        ContainerFormat::MpegTs,
+    )]
+    fn test_rtsp(#[case] rtsp_server_config: RTSPCameraSimulatorConfig, #[case] container_format: ContainerFormat) {
         gst_init();
         let test_config = &get_test_config();
         info!("test_config={:?}", test_config);
         let stream_name = &format!("test-rtsp-{}-{}", test_config.test_id, Uuid::new_v4())[..];
 
-        let container_pipeline = match container_format {
-            ContainerFormat::MpegTs => {
-                format!("! mpegtsmux")
-            },
-            ContainerFormat::Mp4 => {
-                let fragment_duration: TimeDelta = 100 * MSECOND;
-                format!("\
-                    ! mp4mux streamable=true fragment-duration={fragment_duration} \
-                    ! identity name=mp4mux_ silent=false \
-                    ! fragmp4pay",
-                fragment_duration = fragment_duration.milliseconds().unwrap())
-            },
-        };
+        let container_pipeline = container_format.pipeline();
 
-        let fps = 20;
-        let rtsp_server_config = RTSPCameraSimulatorConfigBuilder::default()
-            .fps(fps)
-            .build().unwrap();
+        let fps = rtsp_server_config.fps;
         let (rtsp_url, _rtsp_server) = start_or_get_rtsp_test_source(rtsp_server_config);
         let num_sec_to_record = 20;
         // The identity element will stop the pipeline after this many video frames.
