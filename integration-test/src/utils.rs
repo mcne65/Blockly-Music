@@ -19,7 +19,8 @@ use pravega_client_config::ClientConfig;
 use pravega_client::client_factory::ClientFactory;
 use pravega_client_shared::{Scope, Stream, Segment, ScopedSegment};
 use pravega_video::index::{IndexSearcher, SearchMethod, get_index_stream_name};
-use pravega_video::timestamp::{PravegaTimestamp, TimeDelta};
+use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, SECOND};
+use std::convert::TryFrom;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 #[allow(unused_imports)]
@@ -199,6 +200,22 @@ impl BufferListSummary {
             .count() as u64
     }
 
+    pub fn min_size(&self) -> u64 {
+        self.buffer_summary_list
+            .iter()
+            .map(|s| s.size)
+            .min()
+            .unwrap_or_default()
+    }
+
+    pub fn max_size(&self) -> u64 {
+        self.buffer_summary_list
+            .iter()
+            .map(|s| s.size)
+            .max()
+            .unwrap_or_default()
+    }
+
     pub fn dump(&self, prefix: &str) {
         for (i, s) in self.buffer_summary_list.iter().enumerate() {
             debug!("{}{:5}: {:?}", prefix, i, s);
@@ -209,10 +226,12 @@ impl BufferListSummary {
 impl fmt::Display for BufferListSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         f.write_fmt(format_args!("BufferListSummary {{ num_buffers: {}, num_buffers_with_valid_pts: {}, \
-            first_pts: {}, first_valid_pts: {}, min_pts: {}, last_valid_pts: {}, max_pts_plus_duration: {}, pts_range: {} }}",
+            first_pts: {}, first_valid_pts: {}, min_pts: {}, last_valid_pts: {}, max_pts_plus_duration: {}, pts_range: {}, \
+            min_size: {}, max_size: {} }}",
             self.num_buffers(), self.num_buffers_with_valid_pts(),
             self.first_pts(), self.first_valid_pts(), self.min_pts(),
-            self.last_valid_pts(), self.max_pts_plus_duration(), self.pts_range()))
+            self.last_valid_pts(), self.max_pts_plus_duration(), self.pts_range(),
+            self.min_size(), self.max_size()))
     }
 }
 
@@ -395,20 +414,69 @@ pub fn truncate_stream(client_config: ClientConfig, scope_name: String, stream_n
 }
 
 #[derive(Builder)]
+pub struct VideoTestSrcConfig {
+    #[builder(default = "640")]
+    pub width: u64,
+    #[builder(default = "480")]
+    pub height: u64,
+    #[builder(default = "30")]
+    pub fps: u64,
+    #[builder(default = "\"2001-02-03T04:00:00.000Z\".to_owned()")]
+    pub first_utc: String,
+    #[builder(default = "10 * pravega_video::timestamp::SECOND")]
+    pub duration: TimeDelta,
+}
+
+impl VideoTestSrcConfig {
+    pub fn pipeline(&self) -> String {
+        let first_timestamp = PravegaTimestamp::try_from(Some(&self.first_utc[..])).unwrap();
+        let num_buffers = (self.fps * self.duration / SECOND).unwrap();
+        format!("\
+            videotestsrc name=src \
+              timestamp-offset={first_timestamp} \
+              num-buffers={num_buffers} \
+            ! video/x-raw,width={width},height={height},framerate={fps}/1 \
+            ! videoconvert \
+            ! timeoverlay \
+              valignment=bottom \
+              font-desc=\"Sans 48px\" \
+            ! videoconvert",
+            first_timestamp = first_timestamp.nanoseconds().unwrap(),
+            num_buffers = num_buffers,
+            width = self.width,
+            height = self.height,
+            fps = self.fps,
+        )
+    }
+}
+
+pub enum VideoSource {
+    VideoTestSrc(VideoTestSrcConfig),
+}
+
+impl VideoSource {
+    pub fn pipeline(&self) -> String {
+        match self {
+            VideoSource::VideoTestSrc(config) => config.pipeline(),
+        }
+    }
+}
+
+#[derive(Builder)]
 pub struct H264EncoderConfig {
     #[builder(default = "250.0")]
     pub bitrate_kilobytes_per_sec: f64,
     // Number of frames between key frames.
     #[builder(default = "0")]
     pub key_int_max_frames: u32,
-    // Default tune ("0") uses B-frames. Use "zerolatency" to not use B-frames.
-    #[builder(default = "\"/0\".to_owned()")]
+    // Default tune ("zerolatency") does not use B-frames and is typical for RTSP cameras. Use "0" to use B-frames.
+    #[builder(default = "\"zerolatency\".to_owned()")]
     pub tune: String,
 }
 
 impl H264EncoderConfig {
     pub fn pipeline(&self) -> String {
-        format!("! x264enc bitrate={bitrate_kilobits_per_sec} key-int-max={key_int_max_frames} tune={tune}",
+        format!("x264enc bitrate={bitrate_kilobits_per_sec} key-int-max={key_int_max_frames} tune={tune}",
             bitrate_kilobits_per_sec = (self.bitrate_kilobytes_per_sec * 8.0) as u32,
             key_int_max_frames = self.key_int_max_frames,
             tune = self.tune,
@@ -437,10 +505,10 @@ pub struct Mp4MuxConfig {
 impl Mp4MuxConfig {
     pub fn pipeline(&self) -> String {
         format!("\
-            ! mp4mux streamable=true fragment-duration={fragment_duration} \
-            ! identity name=mp4mux_ silent=false \
+            mp4mux streamable=true fragment-duration={fragment_duration} \
+            ! identity name=mp4mux_ silent=true \
             ! fragmp4pay \
-            ! identity name=fragmp4 silent=false \
+            ! identity name=fragmp4 silent=true \
             ",
             fragment_duration = self.fragment_duration.milliseconds().unwrap())
     }
@@ -457,7 +525,7 @@ impl ContainerFormat {
     pub fn pipeline(&self) -> String {
         match self {
             ContainerFormat::Mp4(config) => config.pipeline(),
-            ContainerFormat::MpegTs => format!("! mpegtsmux"),
+            ContainerFormat::MpegTs => format!("mpegtsmux"),
         }
     }
 }

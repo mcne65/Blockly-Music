@@ -41,8 +41,8 @@ mod test {
             "videotestsrc name=src timestamp-offset={timestamp_offset} num-buffers={num_buffers} \
             ! video/x-raw,width=320,height=180,framerate={fps}/1 \
             ! videoconvert \
-            {video_encoder_pipeline} \
-            {container_pipeline} \
+            ! {video_encoder_pipeline} \
+            ! {container_pipeline} \
             ! tee name=t \
             t. ! queue ! appsink name=sink sync=false \
             t. ! pravegasink {pravega_plugin_properties} \
@@ -64,19 +64,19 @@ mod test {
     /// Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/tutorials/src/bin/basic-tutorial-4.rs
     #[rstest]
     #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).tune("zerolatency".to_owned()).build().unwrap()),
-        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
-    )]
-    #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).tune("zerolatency".to_owned()).build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
     #[case(
         VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).tune("0".to_owned()).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(500 * MSECOND).build().unwrap()),
     )]
     #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).tune("0".to_owned()).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(200 * MSECOND).build().unwrap()),
     )]
     #[case(
