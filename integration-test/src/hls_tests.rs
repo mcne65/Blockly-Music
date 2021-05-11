@@ -71,7 +71,7 @@ mod test {
             ! video/x-h264,alignment=au \
             ! identity silent=true eos-after={num_frames} \
             ! timestampcvt \
-            {container_pipeline} \
+            ! {container_pipeline} \
             ! pravegasink {pravega_plugin_properties} \
               sync=false \
               timestamp-mode=tai \

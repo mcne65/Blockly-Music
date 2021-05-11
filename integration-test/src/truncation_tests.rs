@@ -95,23 +95,23 @@ mod test {
 
     #[rstest]
     #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).tune("zerolatency".to_owned()).build().unwrap()),
-        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
-    )]
-    #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).tune("zerolatency".to_owned()).build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
     #[case(
         VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).tune("0".to_owned()).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(500 * MSECOND).build().unwrap()),
     )]
     #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).tune("0".to_owned()).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(200 * MSECOND).build().unwrap()),
     )]
     #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).tune("zerolatency".to_owned()).build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
         ContainerFormat::MpegTs,
     )]
     fn test_compressed_video(#[case] video_encoder: VideoEncoder, #[case] container_format: ContainerFormat) {
@@ -149,9 +149,9 @@ mod test {
             ! videoconvert \
             ! timeoverlay valignment=bottom font-desc=\"Sans 48px\" shaded-background=true \
             ! videoconvert \
-            {video_encoder_pipeline} \
+            ! {video_encoder_pipeline} \
             ! identity name=h264___ silent=false \
-            {container_pipeline} \
+            ! {container_pipeline} \
             ! tee name=t \
             t. ! queue ! appsink name=sink sync=false \
             t. ! pravegasink {pravega_plugin_properties} \

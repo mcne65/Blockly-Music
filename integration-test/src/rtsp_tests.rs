@@ -68,7 +68,7 @@ mod test {
             ! identity silent=false eos-after={num_frames} \
             ! timestampcvt \
             ! identity name=taits silent=false \
-            {container_pipeline} \
+            ! {container_pipeline} \
             ! pravegasink {pravega_plugin_properties} \
               sync=false \
               timestamp-mode=tai \
