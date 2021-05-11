@@ -16,6 +16,7 @@
 *.mp4
 *.ts
 !/pravega-video-server/static/gap-*.ts
+!/pravega-video-server/static/gap-*.mp4
 __pycache__/
 .ipynb_checkpoints
 pravega-video/Cargo.lock
