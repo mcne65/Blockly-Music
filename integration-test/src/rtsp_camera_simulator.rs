@@ -55,6 +55,9 @@ pub struct RTSPCameraSimulatorConfig {
     pub key_frame_interval_max: u64,
     #[builder(default = "10.0")]
     pub target_rate_kilobytes_per_sec: f64,
+    // Default tune ("zerolatency") does not use B-frames and is typical for RTSP cameras. Use "0" to use B-frames.
+    #[builder(default = "\"/zerolatency\".to_owned()")]
+    pub tune: String,
     #[builder(default = "\"/cam/realmonitor\".to_owned()")]
     pub path: String,
 }
@@ -79,14 +82,15 @@ impl RTSPCameraSimulator {
             ! videoconvert \
             ! clockoverlay font-desc=\"Sans, 48\" time-format=\"%F %T\" shaded-background=true \
             ! timeoverlay valignment=bottom font-desc=\"Sans, 48\" shaded-background=true \
-            ! x264enc tune=zerolatency key-int-max={key_frame_interval_max} bitrate={target_rate_kbits_per_sec} \
+            ! x264enc bitrate={target_rate_kbits_per_sec} key-int-max={key_frame_interval_max} tune={tune} \
             ! h264parse \
             ! rtph264pay name=pay0 pt=96",
             width = config.width,
             height = config.height,
             fps = config.fps,
-            key_frame_interval_max = config.key_frame_interval_max,
             target_rate_kbits_per_sec = target_rate_kilobits_per_sec,
+            key_frame_interval_max = config.key_frame_interval_max,
+            tune = config.tune,
         );
         info!("Launch Pipeline: {}", pipeline_description);
         factory.set_launch(&pipeline_description[..]);

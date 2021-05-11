@@ -398,8 +398,10 @@ pub fn truncate_stream(client_config: ClientConfig, scope_name: String, stream_n
 pub struct H264EncoderConfig {
     #[builder(default = "250.0")]
     pub bitrate_kilobytes_per_sec: f64,
+    // Number of frames between key frames.
     #[builder(default = "0")]
     pub key_int_max_frames: u32,
+    // Default tune ("0") uses B-frames. Use "zerolatency" to not use B-frames.
     #[builder(default = "\"/0\".to_owned()")]
     pub tune: String,
 }

@@ -64,12 +64,20 @@ mod test {
     /// Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/tutorials/src/bin/basic-tutorial-4.rs
     #[rstest]
     #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).tune("zerolatency".to_owned()).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
     #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).tune("zerolatency".to_owned()).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(500 * MSECOND).build().unwrap()),
+    )]
+    #[case(
         VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
-        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(100 * MSECOND).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(200 * MSECOND).build().unwrap()),
     )]
     #[case(
         VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),

@@ -34,6 +34,7 @@ mod test {
 
         // We write an MP4 stream without fragmp4pay because the first few buffers have no timestamp and will not be indexed.
         // This allows us to distinguish between starting at the first buffer in the data stream vs. the first indexed buffer.
+        // The tests in this module do not decode the video so the encoder and container are not significant.
         info!("#### Write video stream to Pravega");
         let pipeline_description = format!(
             "videotestsrc name=src timestamp-offset={timestamp_offset} num-buffers={num_buffers} \
