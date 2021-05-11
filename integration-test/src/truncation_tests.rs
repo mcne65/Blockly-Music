@@ -10,7 +10,7 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::{PravegaTimestamp, SECOND, MSECOND};
+    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, SECOND, MSECOND};
     use rstest::rstest;
     use std::convert::TryFrom;
     #[allow(unused_imports)]
@@ -95,15 +95,23 @@ mod test {
 
     #[rstest]
     #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).tune("zerolatency".to_owned()).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
     #[case(
-        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
-        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(100 * MSECOND).build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).tune("zerolatency".to_owned()).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(60).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(500 * MSECOND).build().unwrap()),
     )]
     #[case(
         VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(200 * MSECOND).build().unwrap()),
+    )]
+    #[case(
+        VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).tune("zerolatency".to_owned()).build().unwrap()),
         ContainerFormat::MpegTs,
     )]
     fn test_compressed_video(#[case] video_encoder: VideoEncoder, #[case] container_format: ContainerFormat) {
@@ -130,7 +138,7 @@ mod test {
         let key_int_max_frames = match video_encoder {
             VideoEncoder::H264(config) => config.key_int_max_frames,
         };
-        let key_int_max_time_delta = key_int_max_frames * SECOND / fps;
+        let key_int_max_time_delta: TimeDelta = key_int_max_frames * SECOND / fps;
         let last_pts_written = first_pts_written + (num_buffers_written - 1) * SECOND / fps;
         info!("last_pts_written={}", last_pts_written);
 
@@ -191,8 +199,10 @@ mod test {
         }
 
         info!("#### Truncate stream");
-        let truncate_sec = 1;
-        let truncate_before_pts = first_pts_written + truncate_sec * SECOND;
+        let truncate_time_delta = key_int_max_time_delta;
+        let truncate_frames: Option<i128> = fps * truncate_time_delta / SECOND;
+        let truncate_frames = truncate_frames.unwrap() as u64;
+        let truncate_before_pts = first_pts_written + truncate_time_delta;
         info!("first_pts_written=  {:?}", first_pts_written);
         info!("truncate_before_pts={:?}", truncate_before_pts);
         truncate_stream(test_config.client_config.clone(), test_config.scope.clone(), stream_name.to_owned(), truncate_before_pts);
@@ -241,7 +251,7 @@ mod test {
         let first_pts_actual = summary_trunc_decoded.first_pts();
         let last_pts_actual = summary_trunc_decoded.last_pts();
         let first_pts_expected = truncate_before_pts;
-        let num_buffers_expected = num_buffers_written - truncate_sec * fps;
+        let num_buffers_expected = num_buffers_written - truncate_frames;
         assert_timestamp_approx_eq("first_pts_actual", first_pts_actual, first_pts_expected,
                                    pts_margin, pts_margin + random_start_pts_margin);
         assert_timestamp_approx_eq("last_pts_actual", last_pts_actual, last_pts_written,

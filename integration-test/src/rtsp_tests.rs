@@ -25,8 +25,8 @@ mod test {
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
     #[case(
-        RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
-        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(100 * MSECOND).build().unwrap()),
+        RTSPCameraSimulatorConfigBuilder::default().fps(20).tune("0".to_owned()).build().unwrap(),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(200 * MSECOND).build().unwrap()),
     )]
     #[case(
         RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
