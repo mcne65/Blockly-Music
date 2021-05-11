@@ -154,15 +154,16 @@ mod test {
             // Perform the seek at the desired pts.
             let now = Instant::now();
             if (now - last_query_time).as_millis() > 100 {
-                let position = pipeline.query_position::<gst::ClockTime>().unwrap();
-                info!("position={}", position);
-                let timestamp = clocktime_to_pravega(position);
-                if seek_at_pts <= timestamp && timestamp < seek_to_pts {
-                    info!("Performing seek");
-                    pipeline.seek_simple(
-                            gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-                            pravega_to_clocktime(seek_to_pts),
-                    ).unwrap();
+                if let Some(position) = pipeline.query_position::<gst::ClockTime>() {
+                    info!("position={}", position);
+                    let timestamp = clocktime_to_pravega(position);
+                    if seek_at_pts <= timestamp && timestamp < seek_to_pts {
+                        info!("Performing seek");
+                        pipeline.seek_simple(
+                                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+                                pravega_to_clocktime(seek_to_pts),
+                        ).unwrap();
+                    }
                 }
                 last_query_time = now;
             }
