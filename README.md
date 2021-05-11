@@ -597,6 +597,7 @@ This thread will run in the background.
 - https://tsduck.io/
 - [RFC 8216 - HTTP Live Streaming](https://tools.ietf.org/html/rfc8216)
 - [HTTP Live Streaming Overview](https://developer.apple.com/library/archive/documentation/NetworkingInternet/Conceptual/StreamingMediaGuide/Introduction/Introduction.html#//apple_ref/doc/uid/TP40008332-CH1-SW1)
+- [ONVIF Streaming Spec](https://www.onvif.org/specs/stream/ONVIF-Streaming-Spec-v221.pdf)
 
 # License
 
