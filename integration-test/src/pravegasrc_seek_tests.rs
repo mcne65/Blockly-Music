@@ -121,7 +121,7 @@ mod test {
                         .new_sample(move |sink| {
                             let sample = sink.pull_sample().unwrap();
                             debug!("sample={:?}", sample);
-                            let buffer = sample.get_buffer().unwrap();
+                            let buffer = sample.buffer().unwrap();
                             let summary = BufferSummary::from(buffer);
                             let mut summary_list = summary_list_clone.lock().unwrap();
                             summary_list.push(summary);
@@ -186,19 +186,14 @@ mod test {
                             let (_, property_name, value) = p.get();
                             match value {
                                 Some(value) => match value.get::<String>() {
-                                    Ok(value) => match value {
-                                        Some(value) => {
-                                            if !value.is_empty() {
-                                                debug!("PropertyNotify: {}={}", property_name, value);
-                                            }
-                                        },
-                                        _ => (),
+                                    Ok(value) => if !value.is_empty() {
+                                        debug!("PropertyNotify: {}={}", property_name, value);
                                     },
                                     _ => {}
                                 },
                                 _ => (),
                             };
-                        }
+                        },
                         _ => (),
                     }
                 },

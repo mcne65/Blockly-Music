@@ -52,8 +52,8 @@ impl TimestampCvt {
         mut buffer: gst::Buffer,
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
 
-        let input_pts = buffer.get_pts();
-        let input_dts = buffer.get_dts();
+        let input_pts = buffer.pts();
+        let input_dts = buffer.dts();
         if input_pts.is_some() {
             let new_pravega_pts = PravegaTimestamp::from_ntp_nanoseconds(input_pts.nseconds());
             if new_pravega_pts.is_some() {
@@ -101,7 +101,7 @@ impl ObjectSubclass for TimestampCvt {
     type ParentType = gst::Element;
 
     fn with_class(klass: &Self::Class) -> Self {
-        let templ = klass.get_pad_template("sink").unwrap();
+        let templ = klass.pad_template("sink").unwrap();
         let sinkpad = gst::Pad::builder_with_template(&templ, Some("sink"))
             .chain_function(|pad, parent, buffer| {
                 TimestampCvt::catch_panic_pad_function(
@@ -126,7 +126,7 @@ impl ObjectSubclass for TimestampCvt {
             })
             .build();
 
-        let templ = klass.get_pad_template("src").unwrap();
+        let templ = klass.pad_template("src").unwrap();
         let srcpad = gst::Pad::builder_with_template(&templ, Some("src"))
         .event_function(|pad, parent, event| {
             TimestampCvt::catch_panic_pad_function(

@@ -187,27 +187,27 @@ impl FragMp4Pay {
         // Update cummulative fragment variables.
         // Buffer PTS, etc. are only valid if this buffer contains MDAT data.
         if state.mp4_parser.have_mdat() {
-            assert!(buffer.get_pts().is_some());
-            if state.fragment_pts.is_none() || state.fragment_pts > buffer.get_pts() {
-                state.fragment_pts = buffer.get_pts();
+            assert!(buffer.pts().is_some());
+            if state.fragment_pts.is_none() || state.fragment_pts > buffer.pts() {
+                state.fragment_pts = buffer.pts();
             }
-            if state.fragment_dts.is_none() || state.fragment_dts > buffer.get_dts() {
-                state.fragment_dts = buffer.get_dts();
+            if state.fragment_dts.is_none() || state.fragment_dts > buffer.dts() {
+                state.fragment_dts = buffer.dts();
             }
-            let pts_plus_duration = buffer.get_pts() + buffer.get_duration();
+            let pts_plus_duration = buffer.pts() + buffer.duration();
             if state.fragment_max_pts_plus_duration.is_none() || state.fragment_max_pts_plus_duration < pts_plus_duration {
                 state.fragment_max_pts_plus_duration = pts_plus_duration;
             }
-            if buffer.get_offset() != gst::BUFFER_OFFSET_NONE && (state.fragment_offset.is_none() || state.fragment_offset.unwrap() > buffer.get_offset()) {
-                state.fragment_offset = Some(buffer.get_offset());
+            if buffer.offset() != gst::BUFFER_OFFSET_NONE && (state.fragment_offset.is_none() || state.fragment_offset.unwrap() > buffer.offset()) {
+                state.fragment_offset = Some(buffer.offset());
             }
-            if buffer.get_offset_end() != gst::BUFFER_OFFSET_NONE && (state.fragment_offset_end.is_none() || state.fragment_offset_end.unwrap() < buffer.get_offset_end()) {
-                state.fragment_offset_end = Some(buffer.get_offset_end());
+            if buffer.offset_end() != gst::BUFFER_OFFSET_NONE && (state.fragment_offset_end.is_none() || state.fragment_offset_end.unwrap() < buffer.offset_end()) {
+                state.fragment_offset_end = Some(buffer.offset_end());
             }
-            if state.fragment_buffer_flags.contains(gst::BufferFlags::DELTA_UNIT) && !buffer.get_flags().contains(gst::BufferFlags::DELTA_UNIT) {
+            if state.fragment_buffer_flags.contains(gst::BufferFlags::DELTA_UNIT) && !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT) {
                 state.fragment_buffer_flags.remove(gst::BufferFlags::DELTA_UNIT);
             }
-            if buffer.get_flags().contains(gst::BufferFlags::DISCONT) {
+            if buffer.flags().contains(gst::BufferFlags::DISCONT) {
                 state.fragment_buffer_flags.insert(gst::BufferFlags::DISCONT);
             }
             gst_trace!(CAT, obj: pad, "Updated state={:?}", state);
@@ -318,7 +318,7 @@ impl ObjectSubclass for FragMp4Pay {
     type ParentType = gst::Element;
 
     fn with_class(klass: &Self::Class) -> Self {
-        let templ = klass.get_pad_template("sink").unwrap();
+        let templ = klass.pad_template("sink").unwrap();
         let sinkpad = gst::Pad::builder_with_template(&templ, Some("sink"))
             .chain_function(|pad, parent, buffer| {
                 FragMp4Pay::catch_panic_pad_function(
@@ -343,7 +343,7 @@ impl ObjectSubclass for FragMp4Pay {
             })
             .build();
 
-        let templ = klass.get_pad_template("src").unwrap();
+        let templ = klass.pad_template("src").unwrap();
         let srcpad = gst::Pad::builder_with_template(&templ, Some("src"))
             .event_function(|pad, parent, event| {
                 FragMp4Pay::catch_panic_pad_function(

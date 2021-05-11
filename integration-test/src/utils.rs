@@ -64,12 +64,12 @@ impl PartialEq for BufferSummary {
 impl From<&gst::BufferRef> for BufferSummary {
     fn from(buffer: &gst::BufferRef) -> BufferSummary {
         BufferSummary {
-            pts: clocktime_to_pravega(buffer.get_pts()),
-            duration: TimeDelta(buffer.get_duration().nanoseconds().map(|t| t as i128)),
-            size: buffer.get_size() as u64,
-            offset: buffer.get_offset(),
-            offset_end: buffer.get_offset_end(),
-            flags: buffer.get_flags(),
+            pts: clocktime_to_pravega(buffer.pts()),
+            duration: TimeDelta(buffer.duration().nanoseconds().map(|t| t as i128)),
+            size: buffer.size() as u64,
+            offset: buffer.offset(),
+            offset_end: buffer.offset_end(),
+            flags: buffer.flags(),
         }
     }
 }
@@ -315,7 +315,7 @@ pub fn launch_pipeline_and_get_summary(pipeline_description: &str) -> Result<Buf
                     .new_sample(move |sink| {
                         let sample = sink.pull_sample().unwrap();
                         trace!("sample={:?}", sample);
-                        let buffer = sample.get_buffer().unwrap();
+                        let buffer = sample.buffer().unwrap();
                         let summary = BufferSummary::from(buffer);
                         let mut summary_list = summary_list_clone.lock().unwrap();
                         summary_list.push(summary);
@@ -362,13 +362,8 @@ pub fn monitor_pipeline_until_eos(pipeline: &gst::Pipeline) -> Result<(), Error>
                 let (_, property_name, value) = p.get();
                 match value {
                     Some(value) => match value.get::<String>() {
-                        Ok(value) => match value {
-                            Some(value) => {
-                                if !value.is_empty() {
-                                    debug!("PropertyNotify: {}={}", property_name, value);
-                                }
-                            },
-                            _ => (),
+                        Ok(value) => if !value.is_empty() {
+                            debug!("PropertyNotify: {}={}", property_name, value);
                         },
                         _ => {}
                     },
