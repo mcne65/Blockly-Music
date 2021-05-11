@@ -20,28 +20,41 @@ mod test {
 
     #[rstest]
     #[case(
+        "default",
         VideoSource::VideoTestSrc(VideoTestSrcConfigBuilder::default().build().unwrap()),
         VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
     #[case(
+        "maximum PTS",
         VideoSource::VideoTestSrc(VideoTestSrcConfigBuilder::default()
             .first_utc("2262-02-03T04:00:00.000Z".to_owned())
             .build().unwrap()),
         VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
-    // #[case(
-    //     VideoSource::VideoTestSrc(VideoTestSrcConfigBuilder::default()
-    //         .width(1920).height(1080)
-    //         .duration(2 * SECOND)
-    //         .build().unwrap()),
-    //     VideoEncoder::H264(H264EncoderConfigBuilder::default().key_int_max_frames(30).build().unwrap()),
-    //     ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
-    // )]
-    fn test_extreme(#[case] video_source: VideoSource, #[case] video_encoder: VideoEncoder, #[case] container_format: ContainerFormat) {
+    #[case(
+        "MP4 fragment greater than 8 MiB",
+        VideoSource::VideoTestSrc(VideoTestSrcConfigBuilder::default()
+            .width(7680).height(4320)   // 8K UHD
+            .duration(2 * SECOND)
+            .build().unwrap()),
+        VideoEncoder::H264(H264EncoderConfigBuilder::default()
+            .bitrate_kilobytes_per_sec(2_048_000.0 / 8.0)   // 2 Gbps, which is the maximum rate allowed by x264enc
+            .key_int_max_frames(10)
+            .build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default()
+            .fragment_duration(200 * MSECOND)   // Each MP4 fragment will hold 2 frames.
+            .build().unwrap()),
+    )]
+    fn test_extreme(#[case] description: &str, #[case] video_source: VideoSource, #[case] video_encoder: VideoEncoder,
+            #[case] container_format: ContainerFormat) {
         let test_config = get_test_config();
         info!("test_config={:?}", test_config);
+        info!("description={:?}", description);
+        info!("video_source={:?}", video_source);
+        info!("video_encoder={:?}", video_encoder);
+        info!("container_format={:?}", container_format);
         gst_init();
         let stream_name = &format!("test-extreme-{}-{}", test_config.test_id, Uuid::new_v4())[..];
 
@@ -54,7 +67,7 @@ mod test {
             {video_source_pipeline} \
             ! identity silent=false \
             ! tee name=t \
-            t. ! queue ! appsink name=sink sync=false \
+            t. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! appsink name=sink sync=false \
             t. ! queue \
                ! {video_encoder_pipeline} \
                ! {container_pipeline} \
@@ -90,8 +103,9 @@ mod test {
         );
         let summary_decoded = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
         summary_decoded.dump("summary_decoded");
-        info!("Expected: summary={}", summary_raw);
-        info!("Actual:   summary={}", summary_decoded);
+        info!("summary_read=             {}", summary_read);
+        info!("Expected: summary_raw=    {}", summary_raw);
+        info!("Actual:   summary_decoded={}", summary_decoded);
         assert_eq!(summary_raw, summary_decoded);
         info!("#### END");
     }

@@ -306,8 +306,7 @@ pub fn launch_pipeline_and_get_summary(pipeline_description: &str) -> Result<Buf
     let _ = pipeline.add_property_deep_notify_watch(None, true);
     let summary_list = Arc::new(Mutex::new(Vec::new()));
     let summary_list_clone = summary_list.clone();
-    let sink = pipeline
-        .by_name("sink");
+    let sink = pipeline.by_name("sink");
     match sink {
         Some(sink) => {
             let sink = sink.downcast::<gst_app::AppSink>().unwrap();
@@ -413,7 +412,7 @@ pub fn truncate_stream(client_config: ClientConfig, scope_name: String, stream_n
     info!("Data truncated at offset {}", index_record.0.offset);
 }
 
-#[derive(Builder)]
+#[derive(Builder, Debug, Clone)]
 pub struct VideoTestSrcConfig {
     #[builder(default = "640")]
     pub width: u64,
@@ -437,9 +436,7 @@ impl VideoTestSrcConfig {
               num-buffers={num_buffers} \
             ! video/x-raw,width={width},height={height},framerate={fps}/1 \
             ! videoconvert \
-            ! timeoverlay \
-              valignment=bottom \
-              font-desc=\"Sans 48px\" \
+            ! timeoverlay valignment=bottom font-desc=\"Sans 48px\" \
             ! videoconvert",
             first_timestamp = first_timestamp.nanoseconds().unwrap(),
             num_buffers = num_buffers,
@@ -450,6 +447,7 @@ impl VideoTestSrcConfig {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum VideoSource {
     VideoTestSrc(VideoTestSrcConfig),
 }
@@ -462,14 +460,14 @@ impl VideoSource {
     }
 }
 
-#[derive(Builder)]
+#[derive(Builder, Clone, Debug)]
 pub struct H264EncoderConfig {
     #[builder(default = "250.0")]
     pub bitrate_kilobytes_per_sec: f64,
-    // Number of frames between key frames.
+    /// Number of frames between key frames.
     #[builder(default = "0")]
     pub key_int_max_frames: u32,
-    // Default tune ("zerolatency") does not use B-frames and is typical for RTSP cameras. Use "0" to use B-frames.
+    /// Default tune ("zerolatency") does not use B-frames and is typical for RTSP cameras. Use "0" to use B-frames.
     #[builder(default = "\"zerolatency\".to_owned()")]
     pub tune: String,
 }
@@ -484,6 +482,7 @@ impl H264EncoderConfig {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum VideoEncoder {
     H264(H264EncoderConfig),
 }
@@ -496,7 +495,7 @@ impl VideoEncoder {
     }
 }
 
-#[derive(Builder)]
+#[derive(Builder, Clone, Debug)]
 pub struct Mp4MuxConfig {
     #[builder(default = "100 * pravega_video::timestamp::MSECOND")]
     fragment_duration: TimeDelta,
@@ -514,6 +513,7 @@ impl Mp4MuxConfig {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum ContainerFormat {
     // MPEG transport stream
     MpegTs,

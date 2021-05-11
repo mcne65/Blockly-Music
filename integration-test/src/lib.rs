@@ -10,6 +10,7 @@
 
 #![allow(dead_code)]
 
+mod extreme_tests;
 mod hls_tests;
 mod pravegasrc_seek_tests;
 mod pravegasrc_tests;
@@ -43,7 +44,7 @@ pub const DEFAULT_GST_DEBUG: &str = "pravegasrc:DEBUG,pravegasink:DEBUG,fragmp4p
 pub const DEFAULT_GST_PRAVEGA_INTEGRATION_TEST_LOG: &str = "gstreamer_pravega_integration_test=debug,pravega_video=debug,warn";
 
 #[derive(Clone, Debug)]
-pub struct TestConfig {
+pub struct TestConfig { 
     pub client_config: ClientConfig,
     pub scope: String,
     pub test_id: String,
