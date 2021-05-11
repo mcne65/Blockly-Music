@@ -14,7 +14,7 @@ use pravega_client_config::ClientConfigBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
 use warp::Filter;
 
-/// Serve HTTP Live Streaming (HLS) from a Pravega MPEG Transport Stream.
+/// Serve HTTP Live Streaming (HLS) from a Pravega Video Stream.
 /// Point your browser to: http://localhost:3030/player?scope=examples&stream=hlsav4
 #[derive(Clap)]
 struct Opts {
@@ -66,26 +66,27 @@ fn main() {
 }
 mod filters {
     use super::handlers;
-    use super::models::{Db, GetMpegTransportStreamOptions, GetM3u8PlaylistOptions};
+    use super::models::{Db, GetMediaSegmentOptions, GetM3u8PlaylistOptions};
     use warp::Filter;
 
     pub fn get_all_filters(
         db: Db,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-        get_mpeg_transport_stream(db.clone())
+        get_media_segment(db.clone())
             .or(get_m3u8_playlist(db.clone()))
             .or(list_video_streams(db.clone()))
     }
 
-    /// GET /scopes/my_scope/streams/my_stream/ts?begin=0&end=204
-    pub fn get_mpeg_transport_stream(
+    /// GET /scopes/my_scope/streams/my_stream/media?begin=0&end=204
+    /// Returns a media segment consisting of fragmented MP4 or MPEG TS.
+    pub fn get_media_segment(
         db: Db,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-        warp::path!("scopes" / String / "streams" / String / "ts" )
+        warp::path!("scopes" / String / "streams" / String / "media" )
             .and(warp::get())
-            .and(warp::query::<GetMpegTransportStreamOptions>())
+            .and(warp::query::<GetMediaSegmentOptions>())
             .and(with_db(db))
-            .and_then(handlers::get_mpeg_transport_stream)
+            .and_then(handlers::get_media_segment)
     }
 
     /// GET /scopes/my_scope/streams/my_stream/m3u8?begin=2021-04-19T00:00:00Z&end=2021-04-20T00:00:00Z
@@ -154,15 +155,15 @@ mod ui {
 
 mod handlers {
     use std::convert::Infallible;
-    use super::models::{Db, GetMpegTransportStreamOptions, GetM3u8PlaylistOptions};
+    use super::models::{Db, GetMediaSegmentOptions, GetM3u8PlaylistOptions};
 
-    pub async fn get_mpeg_transport_stream(
+    pub async fn get_media_segment(
         scope_name: String,
         stream_name: String,
-        opts: GetMpegTransportStreamOptions,
+        opts: GetMediaSegmentOptions,
         db: Db,
     ) -> Result<impl warp::Reply, Infallible> {
-        db.get_mpeg_transport_stream(scope_name, stream_name, opts).await
+        db.get_media_segment(scope_name, stream_name, opts).await
     }
 
     pub async fn get_m3u8_playlist(
@@ -209,9 +210,9 @@ mod models {
         Db { client_factory }
     }
 
-    // The query parameters for get_mpeg_transport_stream.
+    // The query parameters for get_media_segment.
     #[derive(Debug, Deserialize)]
-    pub struct GetMpegTransportStreamOptions {
+    pub struct GetMediaSegmentOptions {
         /// Begin byte offset
         pub begin: u64,
         /// End byte offset (exclusive)
@@ -239,13 +240,13 @@ mod models {
     }
 
     impl Db {
-        pub async fn get_mpeg_transport_stream(
+        pub async fn get_media_segment(
             self,
             scope_name: String,
             stream_name: String,
-            opts: GetMpegTransportStreamOptions,
+            opts: GetMediaSegmentOptions,
         ) -> Result<impl warp::Reply, Infallible> {
-            tracing::info!("scope_name={}, stream_name={}, begin={}, end={}", scope_name, stream_name, opts.begin, opts.end);
+            tracing::info!("get_media_segment: scope_name={}, stream_name={}, begin={}, end={}", scope_name, stream_name, opts.begin, opts.end);
             assert!(opts.begin <= opts.end);
 
             // TODO: Provide chunks to the HTTP client as a stream instead of buffering the entire response.
@@ -261,7 +262,7 @@ mod models {
                     segment: Segment::from(0),
                 };
                 let mut reader = client_factory.create_byte_stream_reader(scoped_segment);
-                tracing::info!("Opened Pravega reader");
+                tracing::info!("get_media_segment: Opened Pravega reader");
 
                 reader.seek(SeekFrom::Start(opts.begin)).unwrap();
                 let limit = opts.end - opts.begin;
@@ -275,7 +276,7 @@ mod models {
                         match event_reader.read_required_buffer_length(&mut reader) {
                             Ok(n) => n,
                             Err(e) if e.kind() == ErrorKind::UnexpectedEof && reader.limit() == 0 => {
-                                tracing::trace!("Reached requested end");
+                                tracing::trace!("get_media_segment: Reached requested end");
                                 break;
                             },
                             Err(e) => return Err(e),
@@ -284,15 +285,15 @@ mod models {
                     let event = match event_reader.read_event(&mut reader, &mut read_buffer[..]) {
                         Ok(n) => n,
                         Err(e) if e.kind() == ErrorKind::UnexpectedEof && reader.limit() == 0 => {
-                            tracing::trace!("Reached requested end");
+                            tracing::trace!("get_media_segment: Reached requested end");
                             break;
                         },
                         Err(e) => return Err(e),
                     };
-                    tracing::trace!("get_mpeg_transport_stream: event={:?}", event);
+                    tracing::trace!("get_media_segment: event={:?}", event);
                     chunks.push(Ok(Bytes::copy_from_slice(&event.payload)));
                 }
-                tracing::info!("Created {} chunks", chunks.len());
+                tracing::info!("get_media_segment: Created {} chunks", chunks.len());
                 assert!(reader.limit() == 0);
                 Ok(chunks)
             })
@@ -300,9 +301,10 @@ mod models {
             .unwrap()
             .unwrap();
 
-            tracing::trace!("spawn_blocking done");
+            tracing::trace!("get_media_segment: spawn_blocking done");
             let stream = futures_util::stream::iter(chunks);
             let body = Body::wrap_stream(stream);
+            // TODO: Get content type from Pravega stream tag. For now "video/mp4" appears to work for MP4 and MPEG TS.
             // let content_type = "video/MP2T";
             let content_type = "video/mp4";
             Ok(warp::reply::with_header(warp::reply::Response::new(body), "content-type", content_type))
@@ -314,12 +316,12 @@ mod models {
             stream_name: String,
             opts: GetM3u8PlaylistOptions,
         ) -> anyhow::Result<String> {
-            tracing::info!("scope_name={}, stream_name={}, begin={:?}, end={:?}", scope_name, stream_name, opts.begin, opts.end);
+            tracing::info!("get_m3u8_playlist: scope_name={}, stream_name={}, begin={:?}, end={:?}", scope_name, stream_name, opts.begin, opts.end);
 
             let index_stream_name = get_index_stream_name(&stream_name);
             let begin_timestamp = PravegaTimestamp::from(opts.begin).or(PravegaTimestamp::MIN);
             let end_timestamp = PravegaTimestamp::from(opts.end).or(PravegaTimestamp::MAX);
-            tracing::info!("begin_timestamp={}, end_timestamp={}", begin_timestamp, end_timestamp);
+            tracing::info!("get_m3u8_playlist: begin_timestamp={}, end_timestamp={}", begin_timestamp, end_timestamp);
             assert!(begin_timestamp <= end_timestamp);
 
             // Use spawn_blocking to allow Pravega non-async methods to block this thread.
@@ -333,7 +335,7 @@ mod models {
                     segment: Segment::from(0),
                 };
                 let index_reader = client_factory.create_byte_stream_reader(scoped_segment);
-                tracing::info!("Opened Pravega reader");
+                tracing::info!("get_m3u8_playlist: Opened Pravega reader");
 
                 let mut index_searcher = IndexSearcher::new(index_reader);
                 let begin_index_record = index_searcher.search_timestamp_and_return_index_offset(
@@ -345,7 +347,7 @@ mod models {
                 // future appends will not affect our result.
                 // TODO: We can also guarantee this if the stream has been sealed.
                 let have_all_data = end_index_record.0.timestamp >= end_timestamp;
-                tracing::info!("begin_index_record={:?}, end_index_record={:?}, have_all_data={}",
+                tracing::info!("get_m3u8_playlist: begin_index_record={:?}, end_index_record={:?}, have_all_data={}",
                         begin_index_record, end_index_record, have_all_data);
                 let mut index_reader = index_searcher.into_inner();
 
@@ -353,7 +355,7 @@ mod models {
                 let index_begin_offset = begin_index_record.1;
                 let index_end_offset = end_index_record.1 + IndexRecord::RECORD_SIZE as u64;
                 let index_size = index_end_offset - index_begin_offset;
-                tracing::info!("index_begin_offset={}, index_end_offset={}, index_size={}", index_begin_offset, index_end_offset, index_size);
+                tracing::info!("get_m3u8_playlist: index_begin_offset={}, index_end_offset={}, index_size={}", index_begin_offset, index_end_offset, index_size);
 
                 // Position index reader at current beginning of the index.
                 index_reader.seek(SeekFrom::Start(index_begin_offset)).unwrap();
@@ -363,7 +365,7 @@ mod models {
 
                 // Media Sequence Number will always equal the index record number, even after truncation.
                 let initial_media_sequence_number: u64 = index_begin_offset / IndexRecord::RECORD_SIZE as u64;
-                tracing::info!("initial_media_sequence_number={}", initial_media_sequence_number);
+                tracing::info!("get_m3u8_playlist: initial_media_sequence_number={}", initial_media_sequence_number);
 
                 // Initial value for target duration. This will be updated with an exponential moving average, then rounded.
                 let mut target_duration_seconds = 10.0;
@@ -377,17 +379,17 @@ mod models {
                     let index_record = match index_record_reader.read(&mut index_reader) {
                         Ok(n) => n,
                         Err(e) if e.kind() == ErrorKind::UnexpectedEof && index_reader.limit() == 0 => {
-                            tracing::trace!("Reached requested end");
+                            tracing::trace!("get_m3u8_playlist: Reached requested end");
                             break;
                         },
                         Err(e) => return Err(e),
                     };
-                    tracing::trace!("index_record={:?}", index_record);
+                    tracing::trace!("get_m3u8_playlist: index_record={:?}", index_record);
                     if let Some(prev_index_record) = prev_index_record {
                         // If index_record indicates a discontinuity, then assume there is a gap in the data
                         // between the previous record and this one.
                         // Any recorded content that falls in this gap may be corrupt so we will not display it.
-                        // Instead, we'll play a short transport stream containing blue video and silent audio.
+                        // Instead, we'll play a short media segment containing blue video and silent audio.
                         // The length of this replacement content will be fixed, regardless of the timestamps.
                         // The EXT-X-GAP tag should be used for this but it doesn't appear to be supported by hls.js.
                         // It is possible that the duration of the gap in the index is very short or even 0.
@@ -396,13 +398,13 @@ mod models {
 
                         let mut discont = index_record.discontinuity;
                         if discont {
-                            tracing::warn!("Detected discontinuity; discontinuity flag set in {:?}", index_record);
+                            tracing::warn!("get_m3u8_playlist: Detected discontinuity; discontinuity flag set in {:?}", index_record);
                         } else {
                             if let Some(timestamp_nanos) = index_record.timestamp.nanoseconds() {
                                 let prev_timestamp_nanos = prev_index_record.timestamp.nanoseconds().unwrap();
                                 if timestamp_nanos < prev_timestamp_nanos {
                                     let rewind_seconds = (prev_timestamp_nanos - timestamp_nanos) as f64 * 1e-9;
-                                    tracing::warn!("Detected discontinuity; rewind of {:.3} seconds from {} to {}",
+                                    tracing::warn!("get_m3u8_playlist: Detected discontinuity; rewind of {:.3} seconds from {} to {}",
                                     rewind_seconds, prev_index_record.timestamp, index_record.timestamp);
                                     discont = true;
                                 } else {
@@ -410,7 +412,7 @@ mod models {
                                     // If the timestamp increased by much more than the target duration,
                                     // then assume we have a discontinuity.
                                     if duration_seconds > target_duration_seconds + 1.0 {
-                                        tracing::warn!("Detected discontinuity; {:.3} second gap from {} to {}, target_duration_seconds={:.3}",
+                                        tracing::warn!("get_m3u8_playlist: Detected discontinuity; {:.3} second gap from {} to {}, target_duration_seconds={:.3}",
                                             duration_seconds, prev_index_record.timestamp, index_record.timestamp, target_duration_seconds);
                                         discont = true;
                                     } else {
@@ -426,12 +428,12 @@ mod models {
                                         playlist_body.push_str(&format!("#EXTINF:{},\n", duration_seconds));
                                         // "#EXT-X-PROGRAM-DATE-TIME:2010-02-19T14:54:23.123456789Z"
                                         playlist_body.push_str(&format!("#EXT-X-PROGRAM-DATE-TIME:{}\n", prev_index_record.timestamp.to_iso_8601().unwrap()));
-                                        // "ts?begin=0&end=204" where 0 and 204 are the begin and end byte offsets
-                                        playlist_body.push_str(&format!("ts?begin={}&end={}\n", begin_offset, end_offset));
+                                        // "media?begin=0&end=204" where 0 and 204 are the begin and end byte offsets
+                                        playlist_body.push_str(&format!("media?begin={}&end={}\n", begin_offset, end_offset));
                                     }
                                 }
                             } else {
-                                tracing::warn!("Detected discontinuity; missing timestamp in index at offset {}",
+                                tracing::warn!("get_m3u8_playlist: Detected discontinuity; missing timestamp in index at offset {}",
                                     index_record.offset);
                                 discont = true;
                             }
@@ -450,7 +452,7 @@ mod models {
 
                 let mut playlist = String::new();
                 let target_duration_seconds = target_duration_seconds.round();
-                tracing::info!("target_duration_seconds={}", target_duration_seconds);
+                tracing::info!("get_m3u8_playlist: target_duration_seconds={}", target_duration_seconds);
                 playlist.push_str("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-ALLOW-CACHE:NO\n");
                 playlist.push_str(&format!("#EXT-X-MEDIA-SEQUENCE:{}\n", initial_media_sequence_number));
                 playlist.push_str(&format!("#EXT-X-TARGETDURATION:{}\n", target_duration_seconds));
@@ -464,8 +466,8 @@ mod models {
                 Ok(playlist)
             })
             .await??;
-            tracing::trace!("spawn_blocking done");
-            tracing::trace!("playlist={}", playlist);
+            tracing::trace!("get_m3u8_playlist: spawn_blocking done");
+            tracing::trace!("get_m3u8_playlist: playlist={}", playlist);
             Ok(playlist)
         }
 
