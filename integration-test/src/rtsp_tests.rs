@@ -23,6 +23,14 @@ mod test {
     #[case(
         RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+        5*60,
+        false,
+    )]
+    #[case(
+        RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+        20,
+        true,
     )]
     // TODO: Below disabled because fragments with more than 1 frame result in corruption with real RTSP camera.
     //       Workaround is to use fragment duration 1 ms which is tested above.
@@ -33,12 +41,17 @@ mod test {
     #[case(
         RTSPCameraSimulatorConfigBuilder::default().fps(20).tune("0".to_owned()).build().unwrap(),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
+        20,
+        true
     )]
     #[case(
         RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
         ContainerFormat::MpegTs,
+        20,
+        true
     )]
-    fn test_rtsp(#[case] rtsp_server_config: RTSPCameraSimulatorConfig, #[case] container_format: ContainerFormat) {
+    fn test_rtsp(#[case] rtsp_server_config: RTSPCameraSimulatorConfig, #[case] container_format: ContainerFormat,
+            #[case] num_sec_to_record: u64, #[case] restart: bool) {
         gst_init();
         let test_config = &get_test_config();
         info!("test_config={:?}", test_config);
@@ -48,10 +61,9 @@ mod test {
 
         let fps = rtsp_server_config.fps;
         let (rtsp_url, _rtsp_server) = start_or_get_rtsp_test_source(rtsp_server_config);
-        let num_sec_to_record = 20;
         // The identity element will stop the pipeline after this many video frames.
         let num_frames_to_record = num_sec_to_record * fps;
-        let num_sec_expected_min = 3;
+        let num_sec_expected_min = num_sec_to_record - 17;
         let num_frames_expected_min = num_sec_expected_min * fps;
         let num_frames_expected_max = num_frames_to_record;
         // We expect the RTSP camera's clock to be within 24 hours of this computer's clock.
@@ -133,40 +145,42 @@ mod test {
         assert_between_u64("corrupted_buffer_count", summary_decoded.corrupted_buffer_count(), 0, 2);
 
         // Simulate restart of recorder.
-        info!("#### Record RTSP camera to Pravega, part 2");
-        let _ = launch_pipeline_and_get_summary(&pipeline_description_record).unwrap();
+        if restart {
+            info!("#### Record RTSP camera to Pravega, part 2");
+            let _ = launch_pipeline_and_get_summary(&pipeline_description_record).unwrap();
 
-        info!("#### Read recorded stream from Pravega without decoding, part 2");
-        let summary_read2 = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
-        debug!("summary_read ={}", summary_read);
-        debug!("summary_read2={}", summary_read2);
-        // summary_read2.dump("summary_read2: ");
-        let first_pts_read2 = summary_read2.first_valid_pts();
-        let last_pts_read2 = summary_read2.last_valid_pts();
-        let max_gap_sec = 300;
-        assert_timestamp_approx_eq("first_pts_read2", first_pts_read2, first_pts_read, 0 * SECOND, 0 * SECOND);
-        assert_timestamp_approx_eq("last_pts_read2", last_pts_read2, last_pts_read, 0 * SECOND,
-            (2 * num_sec_to_record + max_gap_sec) * SECOND);
-        assert!(summary_read2.pts_range() >= 2 * num_sec_expected_min * SECOND);
-        assert!(summary_read2.pts_range() <= (4 * num_sec_to_record + max_gap_sec) * SECOND);
+            info!("#### Read recorded stream from Pravega without decoding, part 2");
+            let summary_read2 = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+            debug!("summary_read ={}", summary_read);
+            debug!("summary_read2={}", summary_read2);
+            // summary_read2.dump("summary_read2: ");
+            let first_pts_read2 = summary_read2.first_valid_pts();
+            let last_pts_read2 = summary_read2.last_valid_pts();
+            let max_gap_sec = 300;
+            assert_timestamp_approx_eq("first_pts_read2", first_pts_read2, first_pts_read, 0 * SECOND, 0 * SECOND);
+            assert_timestamp_approx_eq("last_pts_read2", last_pts_read2, last_pts_read, 0 * SECOND,
+                (2 * num_sec_to_record + max_gap_sec) * SECOND);
+            assert!(summary_read2.pts_range() >= 2 * num_sec_expected_min * SECOND);
+            assert!(summary_read2.pts_range() <= (4 * num_sec_to_record + max_gap_sec) * SECOND);
 
-        info!("#### Read recorded stream from Pravega with decoding, part 2");
-        let summary_decoded2 = launch_pipeline_and_get_summary(&pipeline_description_decode).unwrap();
-        debug!("summary_decoded ={}", summary_decoded);
-        debug!("summary_decoded2={}", summary_decoded2);
-        // summary_decoded2.dump("summary_decoded2: ");
-        let first_pts_decoded2 = summary_decoded2.first_valid_pts();
-        let last_pts_decoded2 = summary_decoded2.last_valid_pts();
-        assert_timestamp_approx_eq("first_pts_decoded2", first_pts_decoded2, first_pts_read2, decode_margin, decode_margin);
-        assert_timestamp_approx_eq("last_pts_decoded2", last_pts_decoded2, last_pts_read2, decode_margin, decode_margin);
-        assert!(summary_decoded2.pts_range() >= 2 * num_sec_expected_min * SECOND);
-        assert!(summary_decoded2.pts_range() <= (4 * num_sec_to_record + max_gap_sec) * SECOND);
-        assert_between_u64("num_buffers", summary_decoded2.num_buffers(),
-            2 * num_frames_expected_min, 2 * num_frames_expected_max);
-        assert_between_u64("num_buffers_with_valid_pts", summary_decoded2.num_buffers_with_valid_pts(),
-            2 * num_frames_expected_min, 2 * num_frames_expected_max);
-        // TODO: Investigate why so many buffers are corrupted when restarting recording.
-        assert_between_u64("corrupted_buffer_count", summary_decoded2.corrupted_buffer_count(), 0, 100);
+            info!("#### Read recorded stream from Pravega with decoding, part 2");
+            let summary_decoded2 = launch_pipeline_and_get_summary(&pipeline_description_decode).unwrap();
+            debug!("summary_decoded ={}", summary_decoded);
+            debug!("summary_decoded2={}", summary_decoded2);
+            // summary_decoded2.dump("summary_decoded2: ");
+            let first_pts_decoded2 = summary_decoded2.first_valid_pts();
+            let last_pts_decoded2 = summary_decoded2.last_valid_pts();
+            assert_timestamp_approx_eq("first_pts_decoded2", first_pts_decoded2, first_pts_read2, decode_margin, decode_margin);
+            assert_timestamp_approx_eq("last_pts_decoded2", last_pts_decoded2, last_pts_read2, decode_margin, decode_margin);
+            assert!(summary_decoded2.pts_range() >= 2 * num_sec_expected_min * SECOND);
+            assert!(summary_decoded2.pts_range() <= (4 * num_sec_to_record + max_gap_sec) * SECOND);
+            assert_between_u64("num_buffers", summary_decoded2.num_buffers(),
+                2 * num_frames_expected_min, 2 * num_frames_expected_max);
+            assert_between_u64("num_buffers_with_valid_pts", summary_decoded2.num_buffers_with_valid_pts(),
+                2 * num_frames_expected_min, 2 * num_frames_expected_max);
+            // TODO: Investigate why so many buffers are corrupted when restarting recording.
+            assert_between_u64("corrupted_buffer_count", summary_decoded2.corrupted_buffer_count(), 0, 100);
+        }
 
         let interactive = false;
         if interactive {

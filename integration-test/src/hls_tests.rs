@@ -43,8 +43,8 @@ mod test {
         info!("Copy the above URL, press enter, then open the URL in your browser. It should begin playing the video within 20 seconds.");
         let _ = std::io::stdin().read_line(&mut String::new());
 
-        let num_sec_to_record = 60;
-        let fps = 30;
+        let num_sec_to_record = 10*60;
+        let fps = 20;
         let num_frames_to_record = num_sec_to_record * fps;
         let rtsp_server_config = RTSPCameraSimulatorConfigBuilder::default()
             .width(320)
@@ -69,7 +69,7 @@ mod test {
             ! rtph264depay \
             ! h264parse \
             ! video/x-h264,alignment=au \
-            ! identity silent=true eos-after={num_frames} \
+            ! identity silent=false eos-after={num_frames} \
             ! timestampcvt \
             ! {container_pipeline} \
             ! pravegasink {pravega_plugin_properties} \

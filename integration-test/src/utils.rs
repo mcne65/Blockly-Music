@@ -507,9 +507,9 @@ impl Mp4MuxConfig {
     pub fn pipeline(&self) -> String {
         format!("\
             mp4mux streamable=true fragment-duration={fragment_duration} \
-            ! identity name=mp4mux_ silent=true \
+            ! identity name=mp4mux_ silent=false \
             ! fragmp4pay \
-            ! identity name=fragmp4 silent=true \
+            ! identity name=fragmp4 silent=false \
             ",
             fragment_duration = self.fragment_duration.milliseconds().unwrap())
     }
