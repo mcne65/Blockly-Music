@@ -362,23 +362,18 @@ ninja -C builddir
 For more details, refer to https://www.collabora.com/news-and-blog/blog/2020/03/19/getting-started-with-gstreamer-gst-build/.
 
 Use this command to open a shell with environment variables set to use this new build.
+This allows you to use this build without installing it.
 
 ```bash
-scripts/devenv.sh
+ninja -C builddir devenv
 ```
 
 Optionally install this version.
+This will be installed in `/usr/local` and it will be used instead of the version installed by your operating system.
 
 ```bash
-cd gst-build
-rm -rf builddir
-meson --prefix=/usr/local/gstreamer builddir
-ninja -C builddir
-meson install -C builddir
-export PATH=/usr/local/gstreamer/bin:${PATH}
-export LD_LIBRARY_PATH=/usr/local/gstreamer/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
-# Not sure if below is needed.
-#sudo ldconfig
+sudo meson install -C builddir
+sudo ldconfig
 ```
 
 # Testing
