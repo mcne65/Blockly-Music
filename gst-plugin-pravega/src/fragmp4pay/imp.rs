@@ -241,6 +241,8 @@ impl FragMp4Pay {
                                         0
                                     };
                                     let output_buf_len = header_len + moof_atom.len() + mdat_atom.len();
+                                    gst_log!(CAT, obj: pad, "Pushing buffer; include_header={}, ftype.len={}, moov.len={}, moof.len={}, mdat.len={}",
+                                        include_header, ftype_atom.len(), moov_atom.len(), moof_atom.len(), mdat_atom.len());
                                     let mut gst_buffer = gst::Buffer::with_size(output_buf_len).unwrap();
                                     {
                                         let buffer_ref = gst_buffer.get_mut().unwrap();
