@@ -37,6 +37,6 @@ export PRAVEGA_STREAM=${PRAVEGA_STREAM:-rtsp1}
 export RUST_BACKTRACE=1
 
 ${ROOT_DIR}/python_apps/rtsp-camera-to-pravega.py \
-$*   # |& tee ${LOG_FILE}
+$* |& tee ${LOG_FILE}
 
 echo rtsp-camera-to-pravega-python.sh: END

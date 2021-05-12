@@ -76,10 +76,11 @@ def main():
     parser.add_argument("--camera-uri")
     parser.add_argument("--camera-user")
     parser.add_argument("--camera-width", type=int, default=320)
+    parser.add_argument("--container-format", default="mp4", help="mpegts or mp4")
     parser.add_argument("--debugspy", type=str2bool, default=False)
     parser.add_argument("--fakesink", type=str2bool, default=False)
     parser.add_argument("--fakesource", type=str2bool, default=False)
-    parser.add_argument("--fragment-duration-ms", type=int, default=100)
+    parser.add_argument("--fragment-duration-ms", type=int, default=1)
     parser.add_argument("--keycloak-service-account-file")
     parser.add_argument("--log-level", type=int, default=logging.INFO, help="10=DEBUG,20=INFO")
     parser.add_argument("--pravega-controller-uri", default="tcp://127.0.0.1:9090")
@@ -93,7 +94,7 @@ def main():
     # Set default GStreamer logging.
     if not "GST_DEBUG" in os.environ:
         os.environ["GST_DEBUG"] = ("WARNING,rtspsrc:INFO,rtpbin:INFO,rtpsession:INFO,rtpjitterbuffer:INFO," +
-            "h264parse:WARN,pravegasink:DEBUG")
+            "h264parse:WARN,qtmux:FIXME,fragmp4pay:INFO,pravegasink:INFO")
 
     # Set default logging for pravega-video, which sets a Rust tracing subscriber used by the Pravega Rust Client.
     if not "PRAVEGA_VIDEO_LOG" in os.environ:
@@ -145,6 +146,13 @@ def main():
     else:
         debugspy_desc = ""
 
+    if args.container_format == "mpegts":
+        container_pipeline = "mpegtsmux"
+    elif args.container_format == "mp4":
+        container_pipeline = "mp4mux ! fragmp4pay"
+    else:
+        raise Exception("Unsupported container-format '%s'." % args.container_format)
+
     pipeline_description = (
         source_desc +
         debugspy_desc +
@@ -153,9 +161,7 @@ def main():
         "   ! video/x-h264,alignment=au\n" +
         # Convert time from NTP to TAI
         "   ! timestampcvt\n" +
-        # Packetize in fragmented MP4 container format
-        "   ! mp4mux\n" +
-        "   ! fragmp4pay\n" +
+        "   ! " + container_pipeline + "\n"
         # Use a large queue to avoid blocking due to temporary network or system failures
         "   ! queue name=queue_sink\n" +
         sink_desc)
@@ -198,8 +204,9 @@ def main():
         timeoverlay.set_property("valignment", "bottom")
         timeoverlay.set_property("shaded-background", True)
     mp4mux = pipeline.get_by_name("mp4mux0")
-    mp4mux.set_property("streamable", True)
-    mp4mux.set_property("fragment-duration", args.fragment_duration_ms)
+    if mp4mux:
+        mp4mux.set_property("streamable", True)
+        mp4mux.set_property("fragment-duration", args.fragment_duration_ms)
     queue_sink = pipeline.get_by_name("queue_sink")
     if queue_sink:
         queue_sink.set_property("max-size-buffers", 0)
