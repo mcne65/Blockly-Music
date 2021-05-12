@@ -128,7 +128,7 @@ mod test {
             ContainerFormat::Mp4(_) => (0 * MSECOND, 0 * MSECOND),
         };
 
-        // first_timestamp: 2001-02-03T04:00:00.000000000Z (981172837000000000 ns, 272548:00:37.000000000)
+        // first_pts_written: 2001-02-03T04:00:00.000000000Z (981172837000000000 ns, 272548:00:37.000000000)
         let first_utc = "2001-02-03T04:00:00.000Z".to_owned();
         let first_pts_written = PravegaTimestamp::try_from(Some(first_utc)).unwrap();
         info!("first_pts_written={}", first_pts_written);
@@ -185,6 +185,7 @@ mod test {
         assert_timestamp_approx_eq("first_pts_actual", first_pts_actual, first_pts_written, 0 * SECOND, pts_margin);
         assert_timestamp_approx_eq("last_pts_actual", last_pts_actual, last_pts_written, 0 * SECOND, pts_margin);
         assert_eq!(num_buffers_actual, num_buffers_written as u64);
+        assert_between_u64("corrupted_buffer_count", summary_full.corrupted_buffer_count(), 0, 2);
 
         if false {
             info!("#### Play video stream from beginning on screen");
@@ -257,6 +258,7 @@ mod test {
         assert_timestamp_approx_eq("last_pts_actual", last_pts_actual, last_pts_written,
                                    0 * SECOND, pts_margin);
         assert_between_u64("num_buffers_actual", num_buffers_actual, num_buffers_expected - fps, num_buffers_expected);
+        assert_between_u64("corrupted_buffer_count", summary_trunc_decoded.corrupted_buffer_count(), 0, 2);
 
         info!("#### END");
     }

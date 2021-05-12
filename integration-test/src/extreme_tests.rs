@@ -36,7 +36,7 @@ mod test {
     #[case(
         "MP4 fragment greater than 8 MiB",
         VideoSource::VideoTestSrc(VideoTestSrcConfigBuilder::default()
-            .width(7680).height(4320)   // 8K UHD
+            .width(7680).height(4320)   // 8K UHD, 33 megapixels
             .duration(2 * SECOND)
             .build().unwrap()),
         VideoEncoder::H264(H264EncoderConfigBuilder::default()
@@ -107,6 +107,7 @@ mod test {
         info!("Expected: summary_raw=    {}", summary_raw);
         info!("Actual:   summary_decoded={}", summary_decoded);
         assert_eq!(summary_raw, summary_decoded);
+        assert_between_u64("corrupted_buffer_count", summary_decoded.corrupted_buffer_count(), 0, 2);
         info!("#### END");
     }
 }

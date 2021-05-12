@@ -216,6 +216,13 @@ impl BufferListSummary {
             .unwrap_or_default()
     }
 
+    pub fn corrupted_buffer_count(&self) -> u64 {
+        self.buffer_summary_list
+            .iter()
+            .filter(|s| s.flags.contains(gst::BufferFlags::CORRUPTED))
+            .count() as u64
+    }
+
     pub fn dump(&self, prefix: &str) {
         for (i, s) in self.buffer_summary_list.iter().enumerate() {
             debug!("{}{:5}: {:?}", prefix, i, s);

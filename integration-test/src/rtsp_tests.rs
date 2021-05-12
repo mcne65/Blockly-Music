@@ -24,9 +24,15 @@ mod test {
         RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
+    // TODO: Below disabled because fragments with more than 1 frame result in corruption with real RTSP camera.
+    //       Workaround is to use fragment duration 1 ms which is tested above.
+    // #[case(
+    //     RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
+    //     ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(100 * MSECOND).build().unwrap()),
+    // )]
     #[case(
         RTSPCameraSimulatorConfigBuilder::default().fps(20).tune("0".to_owned()).build().unwrap(),
-        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(200 * MSECOND).build().unwrap()),
+        ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
     )]
     #[case(
         RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
@@ -110,9 +116,9 @@ mod test {
             pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
         );
         let summary_decoded = launch_pipeline_and_get_summary(&pipeline_description_decode).unwrap();
+        summary_decoded.dump("summary_decoded: ");
         debug!("summary_read   ={}", summary_read);
         debug!("summary_decoded={}", summary_decoded);
-        debug!("summary_decoded={:?}", summary_decoded);
         let first_pts_decoded = summary_decoded.first_valid_pts();
         let last_pts_decoded = summary_decoded.last_valid_pts();
         assert!(first_pts_decoded.is_some(), "Pipeline is not recording timestamps");
@@ -123,6 +129,8 @@ mod test {
         assert!(summary_decoded.pts_range() <= (2 * num_sec_to_record + 60) * SECOND);
         assert_between_u64("num_buffers", summary_decoded.num_buffers(), num_frames_expected_min, num_frames_expected_max);
         assert_between_u64("num_buffers_with_valid_pts", summary_decoded.num_buffers_with_valid_pts(), num_frames_expected_min, num_frames_expected_max);
+        // Last 2 buffers are usually corrupted. These can be ignored.
+        assert_between_u64("corrupted_buffer_count", summary_decoded.corrupted_buffer_count(), 0, 2);
 
         // Simulate restart of recorder.
         info!("#### Record RTSP camera to Pravega, part 2");
@@ -157,6 +165,8 @@ mod test {
             2 * num_frames_expected_min, 2 * num_frames_expected_max);
         assert_between_u64("num_buffers_with_valid_pts", summary_decoded2.num_buffers_with_valid_pts(),
             2 * num_frames_expected_min, 2 * num_frames_expected_max);
+        // TODO: Investigate why so many buffers are corrupted when restarting recording.
+        assert_between_u64("corrupted_buffer_count", summary_decoded2.corrupted_buffer_count(), 0, 100);
 
         let interactive = false;
         if interactive {

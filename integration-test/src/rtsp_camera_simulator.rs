@@ -29,11 +29,11 @@ use tracing::{info, debug};
 /// The in-process RTSP server will be stopped when the returned value is dropped.
 pub fn start_or_get_rtsp_test_source(config: RTSPCameraSimulatorConfig) -> (String, Option<RTSPCameraSimulator>) {
     match std::env::var("RTSP_URL") {
-        Ok(rtsp_url) => {
+        Ok(rtsp_url) if !rtsp_url.is_empty() => {
             info!("Using external RTSP server at {}", rtsp_url);
             (rtsp_url, None)
         },
-        Err(_) => {
+        _ => {
             let mut rtsp_server = RTSPCameraSimulator::new(config).unwrap();
             rtsp_server.start().unwrap();
             let rtsp_url = rtsp_server.get_url().unwrap();
