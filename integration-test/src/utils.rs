@@ -19,7 +19,7 @@ use pravega_client_config::ClientConfig;
 use pravega_client::client_factory::ClientFactory;
 use pravega_client_shared::{Scope, Stream, Segment, ScopedSegment};
 use pravega_video::index::{IndexSearcher, SearchMethod, get_index_stream_name};
-use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, SECOND};
+use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, SECOND, NSECOND};
 use std::convert::TryFrom;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -43,6 +43,7 @@ pub fn gst_init() {
 #[derive(Clone, Debug)]
 pub struct BufferSummary {
     pub pts: PravegaTimestamp,
+    pub dts: PravegaTimestamp,
     pub duration: TimeDelta,
     pub size: u64,
     /// Not used for equality.
@@ -65,6 +66,7 @@ impl From<&gst::BufferRef> for BufferSummary {
     fn from(buffer: &gst::BufferRef) -> BufferSummary {
         BufferSummary {
             pts: clocktime_to_pravega(buffer.pts()),
+            dts: clocktime_to_pravega(buffer.dts()),
             duration: TimeDelta(buffer.duration().nanoseconds().map(|t| t as i128)),
             size: buffer.size() as u64,
             offset: buffer.offset(),
@@ -113,9 +115,26 @@ impl BufferListSummary {
             .collect()
     }
 
+    /// Returns list of DTSs that are not None.
+    pub fn valid_dts(&self) -> Vec<PravegaTimestamp> {
+        self.buffer_summary_list
+            .iter()
+            .map(|s| s.dts)
+            .filter(|c| c.is_some())
+            .collect()
+    }
+
     /// Returns first PTS that is not None.
     pub fn first_valid_pts(&self) -> PravegaTimestamp {
         match self.valid_pts().first() {
+            Some(t) => t.to_owned(),
+            None => PravegaTimestamp::none(),
+        }
+    }
+
+    /// Returns first DTS that is not None.
+    pub fn first_valid_dts(&self) -> PravegaTimestamp {
+        match self.valid_dts().first() {
             Some(t) => t.to_owned(),
             None => PravegaTimestamp::none(),
         }
@@ -223,9 +242,93 @@ impl BufferListSummary {
             .count() as u64
     }
 
+    /// Check that pts[i] + duration[i] == pts[i+1].
+    /// If duration is none in the buffer, then assume default_duration +/- 1 ns.
+    pub fn imperfect_pts_count(&self, default_duration: TimeDelta) -> u64 {
+        let mut prev_pts = PravegaTimestamp::none();
+        let mut prev_duration = TimeDelta::none();
+        self.buffer_summary_list
+            .iter()
+            .filter(|s| {
+                // Allow PTS to differ by 1 ns from default_duration due to roundoff error.
+                let duration_min = prev_duration.or(default_duration - 1 * NSECOND);
+                let duration_max = prev_duration.or(default_duration + 1 * NSECOND);
+                let pts_delta = s.pts - prev_pts;
+                let imperfect = if pts_delta.is_some() && duration_min.is_some() && duration_max.is_some() {
+                    if duration_min <= pts_delta && pts_delta <= duration_max {
+                        false
+                    } else {
+                        warn!("imperfect_timestamp_count: prev_pts={}, prev_duration={}, pts_delta={}, pts={}",
+                            prev_pts, prev_duration, pts_delta, s.pts);
+                        true
+                    }
+                } else {
+                    false
+                };
+                prev_pts = s.pts;
+                prev_duration = s.duration;
+                imperfect
+            })
+            .count() as u64
+    }
+
+    pub fn decreasing_pts_count(&self) -> u64 {
+        let mut prev_pts = PravegaTimestamp::none();
+        self.buffer_summary_list
+            .iter()
+            .filter(|s| {
+                if s.pts.is_some() {
+                    let decreasing = if prev_pts <= s.pts {
+                        false
+                    } else {
+                        warn!("decreasing_pts_count: prev_pts={}, pts={}", prev_pts, s.pts);
+                        true
+                    };
+                    prev_pts = s.pts;
+                    decreasing
+                } else {
+                    false
+                }
+            })
+            .count() as u64
+    }
+
+    pub fn decreasing_dts_count(&self) -> u64 {
+        let mut prev_dts = PravegaTimestamp::none();
+        self.buffer_summary_list
+            .iter()
+            .filter(|s| {
+                if s.dts.is_some() {
+                    let decreasing = if prev_dts <= s.dts {
+                        false
+                    } else {
+                        warn!("decreasing_dts_count: prev_dts={}, dts={}", prev_dts, s.dts);
+                        true
+                    };
+                    prev_dts = s.dts;
+                    decreasing
+                } else {
+                    false
+                }
+            })
+            .count() as u64
+    }
+
     pub fn dump(&self, prefix: &str) {
+        let mut prev_pts = PravegaTimestamp::none();
         for (i, s) in self.buffer_summary_list.iter().enumerate() {
-            debug!("{}{:5}: {:?}", prefix, i, s);
+            let pts_delta = s.pts - prev_pts;
+            prev_pts = s.pts;
+            debug!("{}{:5}: {:?}, pts_delta: {}", prefix, i, s, pts_delta);
+        }
+    }
+
+    pub fn dump_timestamps(&self, prefix: &str) {
+        let mut prev_pts = PravegaTimestamp::none();
+        for (i, s) in self.buffer_summary_list.iter().enumerate() {
+            let pts_delta = s.pts - prev_pts;
+            prev_pts = s.pts;
+            debug!("{}{:5}: pts: {}, dts: {}, duration: {}, pts_delta: {}", prefix, i, s.pts, s.dts, s.duration, pts_delta);
         }
     }
 }
@@ -233,10 +336,10 @@ impl BufferListSummary {
 impl fmt::Display for BufferListSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         f.write_fmt(format_args!("BufferListSummary {{ num_buffers: {}, num_buffers_with_valid_pts: {}, \
-            first_pts: {}, first_valid_pts: {}, min_pts: {}, last_valid_pts: {}, max_pts_plus_duration: {}, pts_range: {}, \
+            first_pts: {}, first_valid_pts: {}, first_valid_dts: {}, min_pts: {}, last_valid_pts: {}, max_pts_plus_duration: {}, pts_range: {}, \
             min_size: {}, max_size: {} }}",
             self.num_buffers(), self.num_buffers_with_valid_pts(),
-            self.first_pts(), self.first_valid_pts(), self.min_pts(),
+            self.first_pts(), self.first_valid_pts(), self.first_valid_dts(), self.min_pts(),
             self.last_valid_pts(), self.max_pts_plus_duration(), self.pts_range(),
             self.min_size(), self.max_size()))
     }
@@ -343,6 +446,8 @@ pub fn launch_pipeline_and_get_summary(pipeline_description: &str) -> Result<Buf
 
 fn run_pipeline_until_eos(pipeline: &gst::Pipeline) -> Result<(), Error> {
     pipeline.set_state(gst::State::Playing)?;
+    let clock_type = pipeline.clock().unwrap().property("clock-type");
+    info!("run_pipeline_until_eos: clock={:?}, clock_type={:?}", pipeline.clock(), clock_type);
     monitor_pipeline_until_eos(pipeline)?;
     pipeline.set_state(gst::State::Null)?;
     Ok(())
@@ -529,5 +634,72 @@ impl ContainerFormat {
             ContainerFormat::Mp4(config) => config.pipeline(),
             ContainerFormat::MpegTs => format!("mpegtsmux"),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// This function can be used to check an MP4 file for correctness.
+    #[test]
+    fn test_mp4_file_check_ignore() {
+        gst_init();
+        let location = "test.mp4";
+        let fps = 20.0;
+        let default_duration = (1e9 / fps) as u64 * NSECOND;
+
+        let pipeline_description = format!(
+            "filesrc location={location} \
+            ! qtdemux \
+            ! appsink name=sink sync=false",
+            location = location,
+        );
+        let summary_demuxed = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+        summary_demuxed.dump("summary_demuxed: ");
+        debug!("summary_demuxed={}", summary_demuxed);
+        assert_between_u64("decreasing_dts_count", summary_demuxed.decreasing_dts_count(), 0, 10000);
+        assert_between_u64("decreasing_pts_count", summary_demuxed.decreasing_pts_count(), 0, 10000);
+        assert_between_u64("corrupted_buffer_count", summary_demuxed.corrupted_buffer_count(), 0, 10000);
+        assert_between_u64("imperfect_timestamp_count", summary_demuxed.imperfect_pts_count(default_duration), 0, 10000);
+
+        let pipeline_description = format!(
+            "filesrc location={location} \
+            ! decodebin \
+            ! appsink name=sink sync=false",
+            location = location,
+        );
+        let summary_decoded = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+        summary_decoded.dump("summary: ");
+        debug!("summary_decoded={}", summary_decoded);
+        assert_between_u64("decreasing_dts_count", summary_decoded.decreasing_dts_count(), 0, 10000);
+        assert_between_u64("decreasing_pts_count", summary_demuxed.decreasing_pts_count(), 0, 10000);
+        assert_between_u64("corrupted_buffer_count", summary_decoded.corrupted_buffer_count(), 0, 10000);
+        assert_between_u64("imperfect_timestamp_count", summary_decoded.imperfect_pts_count(default_duration), 0, 10000);
+    }
+
+    /// This function can be used to check an RTSP file (created with rtsp-camera-to-file-gdp.sh) for correctness.
+    #[test]
+    fn test_rtsp_file_check() {
+        gst_init();
+        let location = "rtsp.gdp";
+        let fps = 20.0;
+        let default_duration = (1e9 / fps) as u64 * NSECOND;
+
+        let pipeline_description = format!(
+            "filesrc location={location} \
+            ! gdpdepay \
+            ! rtph264depay \
+            ! h264parse \
+            ! video/x-h264,alignment=au \
+            ! appsink name=sink sync=false",
+            location = location,
+        );
+        let summary_gdpdepay = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+        summary_gdpdepay.dump("summary_gdpdepay: ");
+        debug!("summary_gdpdepay={}", summary_gdpdepay);
+        assert_between_u64("decreasing_dts_count", summary_gdpdepay.decreasing_dts_count(), 0, 10000);
+        assert_between_u64("decreasing_pts_count", summary_gdpdepay.decreasing_pts_count(), 0, 10000);
+        assert_between_u64("corrupted_buffer_count", summary_gdpdepay.corrupted_buffer_count(), 0, 10000);
     }
 }
