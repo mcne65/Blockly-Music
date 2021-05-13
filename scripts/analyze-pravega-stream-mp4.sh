@@ -39,12 +39,12 @@ pravegasrc \
   $* \
 ! identity name=after_pravega silent=true \
 ! qtdemux \
-! identity name=after_qtdemux silent=true \
+! identity name=after_qtdemux check-imperfect-timestamp=true silent=false \
 ! h264parse \
-! identity name=after_parse silent=true \
+! identity name=after_parse__ check-imperfect-timestamp=true silent=false \
 ! avdec_h264 \
-! identity name=after_dec silent=false \
+! identity name=after_decode_ check-imperfect-timestamp=true silent=false \
 ! fakesink sync=false \
-|& tee ${LOG_FILE}
+>& ${LOG_FILE}
 
-egrep "chain.*corrupt" ${LOG_FILE}
+egrep "chain.*corrupt|imperfect" ${LOG_FILE}
