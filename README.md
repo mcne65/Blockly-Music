@@ -589,9 +589,12 @@ This thread will run in the background.
 - [MPEG Timing Model](http://www.bretl.com/mpeghtml/timemdl.HTM)
 - [A Guide to MPEG Fundamentals and Protocol Analysis](http://www.img.lx.it.pt/~fp/cav/Additional_material/MPEG2_overview.pdf)
 - [TSDuck, The MPEG Transport Stream Toolkit](https://tsduck.io/)
-- [RFC 8216 - HTTP Live Streaming](https://tools.ietf.org/html/rfc8216)
+- [RFC 8216: HTTP Live Streaming](https://tools.ietf.org/html/rfc8216)
 - [HTTP Live Streaming Overview](https://developer.apple.com/library/archive/documentation/NetworkingInternet/Conceptual/StreamingMediaGuide/Introduction/Introduction.html#//apple_ref/doc/uid/TP40008332-CH1-SW1)
 - [ONVIF Streaming Spec](https://www.onvif.org/specs/stream/ONVIF-Streaming-Spec-v221.pdf)
+- [RFC 3550: RTP: A Transport Protocol for Real-Time Applications](https://www.rfc-editor.org/rfc/rfc3550)
+- [RFC 6184: RTP Payload Format for H.264 Video](https://datatracker.ietf.org/doc/html/rfc6184)
+- [RFC 7826: Real-Time Streaming Protocol (RTSP)](https://www.rfc-editor.org/rfc/rfc7826.html)
 
 # License
 
