@@ -10,7 +10,9 @@
 
 #[cfg(test)]
 mod test {
-    use pravega_video::timestamp::{PravegaTimestamp, HOUR, MSECOND, SECOND};
+    use gst::prelude::*;
+    use gst::ClockType::{Monotonic, Realtime};
+    use pravega_video::timestamp::{PravegaTimestamp, TimeDelta, HOUR, MSECOND, SECOND};
     use rstest::rstest;
     #[allow(unused_imports)]
     use tracing::{error, info, debug};
@@ -20,10 +22,85 @@ mod test {
     use crate::utils::*;
 
     #[rstest]
+    // #[case("none", true, "running-time", Monotonic)]  // bad:  pts=2085, have_dts=false, pts_delta=.0200-.0800, decreasing_pts_count=0
+    #[case("none", true, "running-time", Realtime)]   // bad:  pts=2085, have_dts=false, pts_delta=.0200-.0800, decreasing_pts_count=1
+    // #[case("slave", true, "running-time")]    // bad:  pts=2085, have_dts=false, pts_delta=.0415-.0615, decreasing_pts_count=1
+    // #[case("buffer", true, "running-time")]   // bad:  pts=2085, have_dts=false, pts_delta=.0050-.2500, decreasing_pts_count=1
+    // #[case("auto", true, "running-time")]     // same as slave
+    // #[case("synced", true, "running-time")]   // ?:  pts=2085, have_dts=false, pts_delta=.0400-.0600, decreasing_pts_count=1
+
+    // #[case("none", false, "running-time")]    // bad:  pts=0, have_dts=false, pts_delta=.0400-.0600, decreasing_pts_count=0
+    // #[case("slave", false, "running-time")]   // bad:  pts=0, have_dts=false, pts_delta=.0482-.0583, decreasing_pts_count=0
+    // #[case("buffer", false, "running-time")]  // bad:  pts=0, have_dts=false, pts_delta=.0540-.0600, decreasing_pts_count=0
+    // #[case("auto", false, "running-time")]    // same as slave
+    // #[case("synced", false, "running-time")]  // bad:  pts=0, have_dts=false, pts_delta=.0540-.0600, decreasing_pts_count=0
+
+    // #[case("none", true, "ntp")]              // bad:  pts=none, have_dts=false, pts_delta=, decreasing_pts_count=0
+    // #[case("slave", true, "ntp")]             // bad:  pts=none, have_dts=false, pts_delta=, decreasing_pts_count=0
+    // #[case("buffer", true, "ntp")]            // bad:  pts=none, have_dts=false, pts_delta=, decreasing_pts_count=0
+    // #[case("synced", true, "ntp")]            // bad:  pts=none, have_dts=false, pts_delta=, decreasing_pts_count=0
+
+    // #[case("none", true, "unix", Realtime)]   // bad:  pts=2033, have_dts=false, pts_delta=.0500-.0600, decreasing_pts_count=3
+    // #[case("slave", true, "unix")]            // ?:  pts=2033, have_dts=false, pts_delta=.0499-.0550, decreasing_pts_count=0
+    // #[case("buffer", true, "unix", Realtime)] // bad:  pts=2033, have_dts=false, pts_delta=.0479-.0500, decreasing_pts_count=5
+    // #[case("synced", true, "unix")]           // ?:  pts=2033, have_dts=false, pts_delta=.0100-.6600, decreasing_pts_count=0
+
+    // #[case("none", true, "clock-time", Realtime)]       // bad:   pts=2085, have_dts=false, pts_delta=.0500-.0510, decreasing_pts_count=1
+    // #[case("slave", true, "clock-time", Realtime)]      // bad:   pts=2085, have_dts=false, pts_delta=.0451-.0499, decreasing_pts_count=8
+    // #[case("buffer", true, "clock-time", Realtime)]     // bad:   pts=2085, have_dts=false, pts_delta=.0500-.0510, decreasing_pts_count=1
+    // #[case("synced", true, "clock-time", Realtime)]     // bad:   pts=2085, have_dts=false, pts_delta=.0500-.0540, decreasing_pts_count=1
+
+    fn test_rtspsrc(#[case] buffer_mode: &str, #[case] ntp_sync: bool, #[case] ntp_time_source: &str, #[case] clock_type: gst::ClockType) {
+        gst_init();
+        let clock = gst::SystemClock::obtain();
+        clock.set_property("clock-type", &clock_type).unwrap();
+        gst::SystemClock::set_default(Some(&clock));
+        let rtsp_server_config = RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap();
+        let (rtsp_url, _rtsp_server) = start_or_get_rtsp_test_source(rtsp_server_config);
+        info!("### BEGIN: buffer_mode={}, ntp_sync={}, ntp_time_source={}, clock_type={:?}",
+            buffer_mode, ntp_sync, ntp_time_source, clock_type);
+        let num_buffers = 1*60*20;
+        let pipeline_description = format!("\
+            rtspsrc \
+              buffer-mode={buffer_mode} \
+              drop-on-latency=true \
+              latency=2000 \
+              location={rtsp_url} \
+              max-ts-offset=1000000 \
+              ntp-sync={ntp_sync} \
+              ntp-time-source={ntp_time_source} \
+            ! identity name=rtspsrc silent=true \
+            ! rtph264depay \
+            ! identity name=depay__ silent=true \
+            ! h264parse \
+            ! video/x-h264,alignment=au \
+            ! identity name=h264par silent=true eos-after={num_buffers} \
+            ! appsink name=sink sync=false \
+            ",
+            rtsp_url = rtsp_url,
+            num_buffers = num_buffers,
+            buffer_mode = buffer_mode,
+            ntp_sync = ntp_sync,
+            ntp_time_source = ntp_time_source,
+        );
+        let summary = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+        let have_dts = summary.first_valid_dts().is_some();
+        summary.dump_timestamps("summary: ");
+        info!("### SUMMARY: buffer_mode={}, ntp_sync={}, ntp_time_source={}, clock_type={:?}, have_dts={}",
+            buffer_mode, ntp_sync, ntp_time_source, clock_type, have_dts);
+        debug!("summary={}", summary);
+        assert_between_u64("decreasing_dts_count", summary.decreasing_dts_count(), 0, 0);
+        assert_between_u64("decreasing_pts_count", summary.decreasing_pts_count(), 0, 0);
+        assert_between_u64("corrupted_buffer_count", summary.corrupted_buffer_count(), 0, 0);
+        info!("### END");
+    }
+
+    #[rstest]
     #[case(
         RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
-        5*60,
+        //5*60,
+        30,
         false,
     )]
     #[case(
@@ -58,6 +135,10 @@ mod test {
         let stream_name = &format!("test-rtsp-{}-{}", test_config.test_id, Uuid::new_v4())[..];
 
         let container_pipeline = container_format.pipeline();
+        let demux_pipeline = match container_format {
+            ContainerFormat::Mp4(_) => format!("qtdemux"),
+            ContainerFormat::MpegTs => format!("tsdemux"),
+        };
 
         let fps = rtsp_server_config.fps;
         let (rtsp_url, _rtsp_server) = start_or_get_rtsp_test_source(rtsp_server_config);
@@ -71,7 +152,7 @@ mod test {
         let expected_timestamp_margin = 24 * HOUR;
 
         info!("#### Record RTSP camera to Pravega, part 1");
-        // TODO: Test with queue?: queue max-size-buffers=0 max-size-bytes=10485760 max-size-time=0 silent=true leaky=downstream
+        // TODO: Test with queue?: queue max-size-buffers=0 max-size-bytes=10485760 max-size-time=0 silent=true
         let pipeline_description_record = format!("\
             rtspsrc \
               buffer-mode=none \
@@ -80,10 +161,12 @@ mod test {
               location={rtsp_url} \
               ntp-sync=true \
               ntp-time-source=running-time \
+            ! identity name=rtspsrc silent=false \
             ! rtph264depay \
+            ! identity name=depay__ silent=false \
             ! h264parse \
             ! video/x-h264,alignment=au \
-            ! identity silent=false eos-after={num_frames} \
+            ! identity name=h264par silent=false eos-after={num_frames} \
             ! timestampcvt \
             ! identity name=taits silent=false \
             ! {container_pipeline} \
@@ -98,7 +181,7 @@ mod test {
         );
         let _ = launch_pipeline_and_get_summary(&pipeline_description_record).unwrap();
 
-        info!("#### Read recorded stream from Pravega without decoding, part 1");
+        info!("#### Read recorded stream from Pravega, no demux, no decoding, part 1");
         let pipeline_description = format!(
             "pravegasrc {pravega_plugin_properties} \
               start-mode=earliest \
@@ -111,12 +194,37 @@ mod test {
         let first_pts_read = summary_read.first_valid_pts();
         let last_pts_read = summary_read.last_valid_pts();
         assert!(first_pts_read.is_some(), "Pipeline is not recording timestamps");
+        assert_between_u64("decreasing_pts_count", summary_read.decreasing_pts_count(), 0, 10000);
         assert_timestamp_approx_eq("first_pts_read", first_pts_read, expected_timestamp, expected_timestamp_margin, expected_timestamp_margin);
         assert_timestamp_approx_eq("last_pts_read", last_pts_read, expected_timestamp, expected_timestamp_margin, expected_timestamp_margin);
         assert!(summary_read.pts_range() >= num_sec_expected_min * SECOND);
         assert!(summary_read.pts_range() <= (2 * num_sec_to_record + 60) * SECOND);
 
-        info!("#### Read recorded stream from Pravega with decoding, part 1");
+        info!("#### Read recorded stream from Pravega, demux, no decoding, part 1");
+        let pipeline_description = format!(
+            "pravegasrc {pravega_plugin_properties} \
+              start-mode=earliest \
+              end-mode=latest \
+            ! {demux_pipeline} \
+            ! appsink name=sink sync=false",
+            pravega_plugin_properties = test_config.pravega_plugin_properties(stream_name),
+            demux_pipeline = demux_pipeline,
+        );
+        let summary_demux = launch_pipeline_and_get_summary(&pipeline_description).unwrap();
+        debug!("summary_demux={}", summary_demux);
+        let first_pts_demux = summary_demux.first_valid_pts();
+        let last_pts_demux = summary_demux.last_valid_pts();
+        assert!(first_pts_demux.is_some(), "Pipeline is not recording timestamps");
+        assert_between_u64("decreasing_dts_count", summary_demux.decreasing_dts_count(), 0, 10000);
+        assert_between_u64("decreasing_pts_count", summary_demux.decreasing_pts_count(), 0, 10000);
+        assert_between_u64("corrupted_buffer_count", summary_demux.corrupted_buffer_count(), 0, 10000);
+        assert_between_u64("imperfect_timestamp_count", summary_demux.imperfect_pts_count(TimeDelta::none()), 0, 10000);
+        assert_timestamp_approx_eq("first_pts_demux", first_pts_demux, expected_timestamp, expected_timestamp_margin, expected_timestamp_margin);
+        assert_timestamp_approx_eq("last_pts_demux", last_pts_demux, expected_timestamp, expected_timestamp_margin, expected_timestamp_margin);
+        assert!(summary_demux.pts_range() >= num_sec_expected_min * SECOND);
+        assert!(summary_demux.pts_range() <= (2 * num_sec_to_record + 60) * SECOND);
+
+        info!("#### Read recorded stream from Pravega, complete decoding, part 1");
         let pipeline_description_decode = format!(
             "pravegasrc {pravega_plugin_properties} \
               start-mode=earliest \
@@ -143,6 +251,7 @@ mod test {
         assert_between_u64("num_buffers_with_valid_pts", summary_decoded.num_buffers_with_valid_pts(), num_frames_expected_min, num_frames_expected_max);
         // Last 2 buffers are usually corrupted. These can be ignored.
         assert_between_u64("corrupted_buffer_count", summary_decoded.corrupted_buffer_count(), 0, 2);
+        assert_between_u64("imperfect_timestamp_count", summary_decoded.imperfect_pts_count(TimeDelta::none()), 0, 10000);
 
         // Simulate restart of recorder.
         if restart {
