@@ -66,15 +66,17 @@ mod test {
               drop-on-latency=true \
               latency=2000 \
               location={rtsp_url} \
-              max-ts-offset=1000000 \
+              max-ts-offset=0 \
+              max-ts-offset-adjustment=0 \
               ntp-sync={ntp_sync} \
               ntp-time-source={ntp_time_source} \
-            ! identity name=rtspsrc silent=true \
+              onvif-mode=true \
+            ! identity name=rtspsrc silent=false \
             ! rtph264depay \
             ! identity name=depay__ silent=true \
             ! h264parse \
             ! video/x-h264,alignment=au \
-            ! identity name=h264par silent=true eos-after={num_buffers} \
+            ! identity name=h264par silent=false eos-after={num_buffers} \
             ! appsink name=sink sync=false \
             ",
             rtsp_url = rtsp_url,
@@ -99,8 +101,8 @@ mod test {
     #[case(
         RTSPCameraSimulatorConfigBuilder::default().fps(20).build().unwrap(),
         ContainerFormat::Mp4(Mp4MuxConfigBuilder::default().fragment_duration(1 * MSECOND).build().unwrap()),
-        //5*60,
-        30,
+        5*60,
+        // 2*30,
         false,
     )]
     #[case(

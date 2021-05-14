@@ -328,7 +328,7 @@ impl BufferListSummary {
         for (i, s) in self.buffer_summary_list.iter().enumerate() {
             let pts_delta = s.pts - prev_pts;
             prev_pts = s.pts;
-            debug!("{}{:5}: pts: {}, dts: {}, duration: {}, pts_delta: {}", prefix, i, s.pts, s.dts, s.duration, pts_delta);
+            debug!("{}{:5}: pts: {:?}, dts: {}, duration: {}, pts_delta: {}", prefix, i, s.pts, s.dts, s.duration, pts_delta);
         }
     }
 }
@@ -446,6 +446,15 @@ pub fn launch_pipeline_and_get_summary(pipeline_description: &str) -> Result<Buf
 
 fn run_pipeline_until_eos(pipeline: &gst::Pipeline) -> Result<(), Error> {
     pipeline.set_state(gst::State::Playing)?;
+    // info!("Sleeping");
+    // std::thread::sleep(std::time::Duration::from_secs(15));
+    // let rtpbin = pipeline.by_name("manager");
+    // assert!(rtpbin.is_some());
+    // if let Some(rtpbin) = rtpbin {
+    //     rtpbin.set_property("rtcp-sync-send-time", false).unwrap();
+    //     info!("rtcp-sync-send-time={:?}", rtpbin.property("rtcp-sync-send-time"));
+    // }
+    // pipeline.set_state(gst::State::Playing)?;
     let clock_type = pipeline.clock().unwrap().property("clock-type");
     info!("run_pipeline_until_eos: clock={:?}, clock_type={:?}", pipeline.clock(), clock_type);
     monitor_pipeline_until_eos(pipeline)?;
