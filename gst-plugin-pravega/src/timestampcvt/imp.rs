@@ -52,13 +52,18 @@ impl TimestampCvt {
         mut buffer: gst::Buffer,
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
 
+        let clear_dts = false;
         let input_pts = buffer.pts();
         let input_dts = buffer.dts();
         if input_pts.is_some() {
             let new_pravega_pts = PravegaTimestamp::from_ntp_nanoseconds(input_pts.nseconds());
             if new_pravega_pts.is_some() {
+                let new_pravega_dts = if clear_dts {
+                    PravegaTimestamp::none()
+                } else {
+                    PravegaTimestamp::from_ntp_nanoseconds(input_dts.nseconds())
+                };
                 let new_pts = pravega_to_clocktime(new_pravega_pts);
-                let new_pravega_dts = PravegaTimestamp::from_ntp_nanoseconds(input_dts.nseconds());
                 let new_dts = pravega_to_clocktime(new_pravega_dts);
                 let buffer_ref = buffer.make_mut();
                 gst_log!(CAT, obj: pad, "Input PTS {}, Output PTS {}, Timestamp {:?}", input_pts, new_pts, new_pravega_pts);
