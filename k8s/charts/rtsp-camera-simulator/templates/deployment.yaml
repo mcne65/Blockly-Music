@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rtsp-camera-simulator
+  labels: 
+    release: rtsp-camera-simulator
+spec:
+  selector:
+    matchLabels:
+      release: rtsp-camera-simulator
+  template:
+    metadata:
+      labels:
+        release: rtsp-camera-simulator
+    spec:
+      containers:
+      - name: rtsp-camera-simulator
+        image: {{ .Values.image.repository }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["rtsp-camera-simulator"]
+        ports:
+        - name: rtsp
+          containerPort: 8554
+          protocol: TCP
+        env:
+        - name: CAMERA_PASSWORD
+          value: {{ .Values.camera.password }}
+        - name: CAMERA_PORT
+          value: "8554"
+        - name: CAMERA_USER
+          value: {{ .Values.camera.user }}
